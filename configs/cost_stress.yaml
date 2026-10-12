@@ -1,0 +1,18 @@
+# Teaching config: the same 1-bar reversal alpha under three execution assumptions.
+# Run each with overrides and compare:
+#   alphaforge run configs/cost_stress.yaml --set backtest.execution_delay=0 --set costs.model=linear --set costs.fee_bps=0 --set costs.half_spread_bps=0
+#   alphaforge run configs/cost_stress.yaml --set backtest.execution_delay=0
+#   alphaforge run configs/cost_stress.yaml
+# A strong gross IC does not survive realistic latency + costs at ~460x annual turnover.
+name: cost_stress_reversal
+seed: 42
+data:
+  source: synthetic
+  symbols: [BTC, ETH, SOL, BNB, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC, ATOM]
+  timeframe: 1d
+  synthetic: {n_bars: 2000, start: "2019-01-01"}
+strategies:
+  - name: st_reversal
+    params: {lookback: 1, quantile: 0.3}
+risk: {max_drawdown: null, drawdown_soft_limit: null}
+backtest: {start: "2019-07-01"}

@@ -1,0 +1,57 @@
+# Multi-strategy crypto perp book on the deterministic synthetic market (runs offline).
+# Rule-based sleeves only, so a single full-sample pass is methodologically valid.
+# Note: `st_reversal` is deliberately absent. Its gross edge is real, but at 1-bar execution
+# delay and ~460x annual turnover it loses ~40%/yr after costs (see configs/cost_stress.yaml).
+name: multi_strategy
+description: Momentum + reversion + regime + carry sleeves, risk-parity allocated, 20% vol target.
+seed: 42
+
+data:
+  source: synthetic
+  symbols: [BTC, ETH, SOL, BNB, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC, ATOM]
+  timeframe: 1d
+  synthetic:
+    n_bars: 2000
+    start: "2019-01-01"
+
+strategies:
+  - name: ts_momentum
+    params: {lookbacks: [20, 60, 120]}
+  - name: xs_momentum
+    params: {lookback: 60, skip: 1, quantile: 0.3}
+  - name: zscore_reversion
+    params: {lookback: 20, entry_z: 1.5, exit_z: 0.25, max_efficiency: 0.35}
+  - name: regime_switching
+  - name: funding_carry
+    params: {lookback: 21, quantile: 0.3}
+
+portfolio:
+  sleeve_target_vol: 0.15
+  allocation: risk_parity
+  allocation_lookback: 120
+  rebalance_every: 5
+  correlation_threshold: 0.80
+  target_vol: 0.20
+  max_gross_leverage: 2.0
+  max_net_leverage: 1.0
+  max_position: 0.30
+
+risk:
+  max_drawdown: 0.30
+  drawdown_soft_limit: 0.15
+  cooldown_bars: 20
+
+costs:
+  model: sqrt_impact
+  fee_bps: 4.0          # Binance USDT-M taker, VIP0 ~ 4-5 bps
+  half_spread_bps: 1.5
+  impact_coefficient: 0.1
+
+backtest:
+  initial_capital: 1000000
+  execution_delay: 1    # signal at close t, traded at close t+1
+  apply_funding: true
+  start: "2019-07-01"   # first 6 months only warm up estimators
+
+report:
+  output_dir: runs

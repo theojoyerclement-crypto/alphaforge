@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alphaforge"
+version = "0.1.0"
+description = "Quantitative alpha research framework for crypto markets: data, features, alphas, strategies, risk, institutional-grade backtesting and ML."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "theojoyerclement" }]
+keywords = ["quant", "crypto", "backtesting", "alpha-research", "machine-learning", "portfolio"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scipy>=1.11",
+    "scikit-learn>=1.4",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+ml = ["lightgbm>=4.0"]
+data = ["ccxt>=4.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5", "mypy>=1.10", "types-PyYAML"]
+all = ["alphaforge[ml,data,dev]"]
+
+[project.scripts]
+alphaforge = "alphaforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = ["slow: end-to-end tests that take several seconds"]
+filterwarnings = ["ignore::DeprecationWarning:sklearn.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "NPY", "RUF"]
+ignore = ["N803", "N806", "RUF002", "RUF003"]  # X/y/R/W matrix names are idiomatic in quant code
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["alphaforge"]
+mypy_path = "src"
+ignore_missing_imports = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+no_implicit_optional = true
+plugins = ["pydantic.mypy"]

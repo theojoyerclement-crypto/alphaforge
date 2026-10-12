@@ -1,0 +1,27 @@
+# Live-data variant: Binance USDT-margined perpetuals via CCXT, with funding history.
+# First run downloads into data/store (cached); use source: parquet to stay offline afterwards.
+#   alphaforge fetch --symbols BTC/USDT:USDT ETH/USDT:USDT ... --timeframe 1d --start 2021-01-01
+name: binance_perps
+description: Multi-strategy book on Binance USDT-M perpetuals with real funding.
+seed: 42
+
+data:
+  source: ccxt
+  exchange: binance
+  market_type: swap
+  symbols: [BTC/USDT:USDT, ETH/USDT:USDT, SOL/USDT:USDT, BNB/USDT:USDT, XRP/USDT:USDT,
+            ADA/USDT:USDT, DOGE/USDT:USDT, AVAX/USDT:USDT, LINK/USDT:USDT, DOT/USDT:USDT,
+            LTC/USDT:USDT, ATOM/USDT:USDT]
+  timeframe: 1d
+  start: "2021-01-01"
+  include_funding: true
+  storage_dir: data/store
+
+strategies:
+  - name: ts_momentum
+  - name: xs_momentum
+  - name: regime_switching
+  - name: funding_carry
+
+backtest:
+  start: "2021-07-01"

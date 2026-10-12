@@ -1,0 +1,15 @@
+# Core runtime dependencies (mirrors pyproject.toml). Install with: pip install -r requirements.txt
+numpy>=1.26
+pandas>=2.2
+scipy>=1.11
+scikit-learn>=1.4
+pydantic>=2.6
+pyyaml>=6.0
+matplotlib>=3.8
+pyarrow>=14.0
+
+# Optional: gradient boosting models for the ML layer (falls back to scikit-learn if absent)
+lightgbm>=4.0
+
+# Optional: live exchange data ingestion (Binance, Bybit, OKX, ... via CCXT)
+ccxt>=4.0

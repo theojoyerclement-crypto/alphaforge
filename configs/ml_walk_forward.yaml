@@ -1,0 +1,37 @@
+# ML sleeves (direction model, meta-labeled momentum, learned regime map) next to a
+# rule-based carry sleeve. Models are refit every 120 bars on an expanding window and only
+# ever trade data they have not seen.
+name: ml_walk_forward
+description: Walk-forward ML book with purging embargo between train and test windows.
+seed: 7
+
+data:
+  source: synthetic
+  symbols: [BTC, ETH, SOL, BNB, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC, ATOM]
+  timeframe: 1d
+  synthetic:
+    n_bars: 2000
+    start: "2019-01-01"
+
+strategies:
+  - name: ml_directional
+    params: {model: lightgbm, horizon: 5, min_edge: 0.02}
+  - name: meta_labeled
+    params: {primary: ts_momentum, model: random_forest, pt_mult: 1.5, sl_mult: 1.0, max_holding: 10}
+  - name: ml_regime
+    params: {n_regimes: 3}
+  - name: funding_carry
+
+walk_forward:
+  enabled: true
+  train_bars: 750
+  test_bars: 120
+  expanding: true
+  embargo_bars: 10
+
+portfolio:
+  target_vol: 0.20
+  allocation: risk_parity
+
+costs:
+  model: sqrt_impact

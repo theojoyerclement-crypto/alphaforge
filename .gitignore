@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Research artefacts (reproducible from configs; never commit)
+data/store/
+runs/*
+!runs/.gitkeep
+
+# Local tooling
+.token-optimizer-audit-*/
+.env
