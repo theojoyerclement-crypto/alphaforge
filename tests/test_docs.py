@@ -145,9 +145,17 @@ def test_pages_landing_quotes_published_numbers_and_flags_synthetic(tmp_path: Pa
     site = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(site)
 
-    binance = ROOT / "docs" / "reports" / "binance_perps_pit"
-    synthetic = site.run_report(*site.SYNTHETIC, tmp_path / "synthetic")
-    page = site.landing_page(binance, synthetic)
+    built = site.build(tmp_path / "site")
+    page = (built / "index.html").read_text(encoding="utf-8")
+
+    # Every relative link must resolve in the built site (a folder link needs index.html).
+    import re
+
+    for href in re.findall(r'href="([^"]+)"', page):
+        if href.startswith("http"):
+            continue
+        target = built / href
+        assert (target / "index.html" if href.endswith("/") else target).is_file(), href
 
     assert page.index("reference result") < page.index("Synthetic multi-strategy book")
     synthetic_card = page[page.index("Synthetic multi-strategy book") - 400 :]

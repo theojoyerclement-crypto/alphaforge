@@ -127,6 +127,22 @@ a{color:#1f5fae} .muted{color:#5b6573;font-size:14px}
     )
 
 
+def build(out: Path) -> Path:
+    """Assemble the site in ``out``: landing page plus one served folder per report.
+
+    Each report folder gets an ``index.html`` (a copy of ``report.html``) so the landing
+    page's folder links (``binance-pit/``) are served by GitHub Pages instead of 404.
+    """
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(COMMITTED / BINANCE[0], out / "binance-pit")
+    synthetic_dir = run_report(*SYNTHETIC, out / "synthetic")
+    for folder in (out / "binance-pit", synthetic_dir):
+        shutil.copy2(folder / "report.html", folder / "index.html")
+    (out / "index.html").write_text(landing_page(out / "binance-pit", synthetic_dir), "utf-8")
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--binance", action="store_true", help="refresh the committed report")
@@ -139,13 +155,7 @@ def main() -> None:
         print(f"Refreshed {binance_dir}")
         return
 
-    out: Path = args.out
-    if out.exists():
-        shutil.rmtree(out)
-    shutil.copytree(binance_dir, out / "binance-pit")
-    synthetic_dir = run_report(*SYNTHETIC, out / "synthetic")
-    (out / "index.html").write_text(landing_page(out / "binance-pit", synthetic_dir), "utf-8")
-    print(f"Site written to {out}")
+    print(f"Site written to {build(args.out)}")
 
 
 if __name__ == "__main__":
