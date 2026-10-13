@@ -105,7 +105,10 @@ def format_drawdowns(dd: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-SYNTHETIC_BANNER = "Synthetic market with planted edges: integration test, not a performance claim"
+SYNTHETIC_BANNER = (
+    "Synthetic data with deliberately planted edges, used to validate the engine. "
+    "These are not real results."
+)
 
 
 def describe_data_source(config: Mapping[str, Any] | None) -> tuple[str, bool]:
@@ -198,7 +201,7 @@ def generate_report(
         "",
         f"Generated {datetime.now(UTC):%Y-%m-%d %H:%M UTC}. "
         f"Period {portfolio.returns.index[0].date()} -> {portfolio.returns.index[-1].date()} "
-        f"({pm.n_periods} bars).",
+        f"({_fmt('n_periods', pm.n_periods)} bars).",
         "",
         "| Metric | " + " | ".join(table.columns) + " |",
         "|---|" + "---|" * len(table.columns),
@@ -264,7 +267,7 @@ def generate_report(
     sections += [
         f"<h1>{title}</h1>",
         f'<div class="source">{source}</div>',
-        f'<div class="meta">{period} · {pm.n_periods} bars · '
+        f'<div class="meta">{period} · {_fmt("n_periods", pm.n_periods)} bars · '
         "net of fees, spread, impact and funding</div>",
         f'<div class="kpis">{kpi_html}</div>',
     ]

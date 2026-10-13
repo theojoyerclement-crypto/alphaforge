@@ -68,6 +68,7 @@ def test_header_states_the_data_source(tmp_path) -> None:  # type: ignore[no-unt
     assert SYNTHETIC_BANNER in html
     assert "Data source: synthetic market (seeded, planted edges), 12 assets" in html
     assert html.index(SYNTHETIC_BANNER) < html.index("<h1>"), "banner sits above the title"
+    assert "deliberately planted edges" in html and "not real results" in html
 
     pit = config_to_dict(load_config(CONFIGS / "binance_perps_pit.yaml"))
     html = _report_html(tmp_path / "p", pit)
