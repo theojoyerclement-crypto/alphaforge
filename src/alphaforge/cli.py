@@ -143,6 +143,21 @@ def _cmd_paper(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    state_dir = Path(args.state_dir) / config.name  # broker first: fail before any download
+    broker = None
+    if args.broker == "ccxt-testnet":
+        from alphaforge.live.ccxt_broker import CcxtTestnetBroker
+        from alphaforge.live.kill_switch import KillSwitchConfig
+
+        broker = CcxtTestnetBroker.from_env(
+            config.name,
+            config.data.timeframe,
+            state_dir / "broker_state.json",
+            exchange_id=args.exchange_id,
+            kill_switch_config=KillSwitchConfig(
+                args.max_loss, args.max_position_gap, args.max_stale_bars
+            ),
+        )
     data_cfg = config.data
     if data_cfg.source == "ccxt":
         data_cfg = data_cfg.model_copy(update={"use_cache": False})  # always refresh
@@ -152,8 +167,7 @@ def _cmd_paper(args: argparse.Namespace) -> int:
     if age > 2 * bar:
         print(f"WARNING: last complete bar {data.index[-1]} is {age} old", file=sys.stderr)
 
-    state_dir = Path(args.state_dir) / config.name
-    trader = PaperTrader.from_state(config, state_dir / "state.json")
+    trader = PaperTrader.from_state(config, state_dir / "state.json", broker=broker)
     report = trader.step(data)
     if report.skipped:
         print(f"Bar {report.bar} already processed (NAV {report.nav:,.2f}); nothing to do.")
@@ -247,6 +261,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Offline: replay the last N bars and check parity with the backtest",
     )
     pp.add_argument("--state-dir", default="paper", help="Where paper account state is kept")
+    pp.add_argument(
+        "--broker",
+        default="paper",
+        choices=["paper", "ccxt-testnet"],
+        help="paper: simulated fills; ccxt-testnet: real orders on an exchange sandbox "
+        "(keys from ALPHAFORGE_TESTNET_API_KEY / _SECRET)",
+    )
+    pp.add_argument(
+        "--exchange-id", default="binanceusdm", help="CCXT id for --broker ccxt-testnet"
+    )
+    pp.add_argument("--max-loss", type=float, default=0.10, help="kill switch: loss from high")
+    pp.add_argument("--max-position-gap", type=float, default=0.05, help="kill switch: desync")
+    pp.add_argument("--max-stale-bars", type=int, default=2, help="kill switch: data age")
     pp.set_defaults(func=_cmd_paper)
 
     val = sub.add_parser("validate", help="Audit a config's data: quality flags and universe size")
@@ -263,6 +290,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     from alphaforge.config.loader import ConfigError
     from alphaforge.data.quality import DataQualityError
     from alphaforge.data.sources.base import DataSourceError
+    from alphaforge.live.ccxt_broker import SandboxRequiredError
+    from alphaforge.live.kill_switch import KillSwitchTriggeredError
     from alphaforge.research.experiment import ConfigurationError
 
     args = build_parser().parse_args(argv)
@@ -274,6 +303,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         DataQualityError,
         DataSourceError,
         FileNotFoundError,
+        KillSwitchTriggeredError,
+        SandboxRequiredError,
     ) as exc:
         # User-facing problems (bad config, missing or bad data, venue down): no traceback.
         print(f"error: {exc}", file=sys.stderr)

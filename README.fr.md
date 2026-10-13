@@ -54,6 +54,8 @@ Tableaux complets, limites et commandes de reproduction : **[docs/RESULTS.md](do
 | **Données réelles, mauvais résultats inclus** | Univers fixe contre point-in-time, overlay v1 contre v2, référence BTC | [RESULTS §5](docs/RESULTS.md#5-real-market-binance-usdt-m-perpetuals) |
 | **Incertitude** | Intervalles par bootstrap par blocs apparié sur chaque Sharpe de portefeuille | [RESULTS : bruit](docs/RESULTS.md#how-much-of-this-is-noise) |
 | **Pré-registration** | Règle commitée avant les résultats (`cc2ba29` précède `7a968bc`) | [METHODOLOGY §6](docs/METHODOLOGY.md#6-pre-registered-change-drawdown-overlay-v2-2026-10-13) |
+| **Exécution sur testnet** | Le même code de décision envoie de vrais ordres à un exchange sandbox : identifiants client idempotents, réconciliation, kill switch | [docs/LIVE_TESTNET.md](docs/LIVE_TESTNET.md), `src/alphaforge/live/ccxt_broker.py` |
+| **Performance du moteur** | Profilé, puis un noyau numba optionnel testé en parité contre la boucle Python | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
 | **Qualité des données** | Trous, flux morts, couverture du funding, délistings | `alphaforge validate`, `src/alphaforge/data/quality.py` |
 | **La doc ne contredit jamais les résultats** | Un chiffre du README ou d'une figure absent de RESULTS.md fait échouer la CI | `tests/test_docs.py` |
 
@@ -98,8 +100,8 @@ commandes de téléchargement sont dans [RESULTS.md](docs/RESULTS.md#reproducing
 ```
 src/alphaforge/   data · features · alpha · strategies · portfolio · backtest · ml · analytics · research · live · config · utils
 configs/          multi_strategy · ml_walk_forward · cost_stress · binance_perps · binance_perps_pit
-docs/             RESULTS · METHODOLOGY · ARCHITECTURE · USAGE · img/
-scripts/          smoke_test.py · make_figures.py
+docs/             RESULTS · METHODOLOGY · ARCHITECTURE · USAGE · PERFORMANCE · LIVE_TESTNET · img/
+scripts/          smoke_test.py · make_figures.py · benchmark.py · build_site.py
 examples/         démarrage · recherche d'alphas · ML meta-labeling · stratégie maison · confiance du Sharpe
 tests/            propriétés de causalité, comptabilité calculée à la main, fuites de CV, parité paper, cohérence de la doc
 ```
@@ -109,8 +111,8 @@ Fonctionnement, configuration, paper trading et écriture d'une stratégie :
 
 ## Feuille de route
 
-- Noyau du moteur accéléré (numba), avec un test de parité contre la référence Python
-- Broker testnet derrière l'interface `Broker` existante : ordres idempotents, réconciliation, kill switch
+- Balayages de capacité et de sensibilité aux coûts, désormais peu coûteux grâce au moteur compilé
+- Une première session testnet réelle, journalisée et présentée à côté du backtest
 - Échantillons réels plus longs ou plus larges : cinq ans de données journalières ne suffisent pas à départager les books testés ici
 - Historique des instruments délistés depuis une seconde source, pour supprimer le biais du survivant restant
 

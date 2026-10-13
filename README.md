@@ -48,6 +48,8 @@ Full tables, caveats and reproduction commands: **[docs/RESULTS.md](docs/RESULTS
 | **Real data, bad results included** | Fixed vs point-in-time universe, overlay v1 vs v2, BTC benchmark | [RESULTS §5](docs/RESULTS.md#5-real-market-binance-usdt-m-perpetuals) |
 | **Uncertainty** | Paired block-bootstrap intervals on every portfolio Sharpe | [RESULTS: noise](docs/RESULTS.md#how-much-of-this-is-noise) |
 | **Pre-registration** | Rule committed before results (`cc2ba29` precedes `7a968bc`) | [METHODOLOGY §6](docs/METHODOLOGY.md#6-pre-registered-change-drawdown-overlay-v2-2026-10-13) |
+| **Testnet execution** | Same decision code sends real orders to an exchange sandbox: idempotent client order ids, reconciliation, kill switch | [docs/LIVE_TESTNET.md](docs/LIVE_TESTNET.md), `src/alphaforge/live/ccxt_broker.py` |
+| **Engine performance** | Profiled, then an optional numba kernel parity-tested against the Python loop | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) |
 | **Data quality** | Gaps, dead feeds, funding coverage, delistings | `alphaforge validate`, `src/alphaforge/data/quality.py` |
 | **Docs never contradict results** | A README or figure number missing from RESULTS.md fails CI | `tests/test_docs.py` |
 
@@ -92,8 +94,8 @@ Real-data runs need public Binance data (no API key); the fetch commands are in
 ```
 src/alphaforge/   data · features · alpha · strategies · portfolio · backtest · ml · analytics · research · live · config · utils
 configs/          multi_strategy · ml_walk_forward · cost_stress · binance_perps · binance_perps_pit
-docs/             RESULTS · METHODOLOGY · ARCHITECTURE · USAGE · img/
-scripts/          smoke_test.py · make_figures.py
+docs/             RESULTS · METHODOLOGY · ARCHITECTURE · USAGE · PERFORMANCE · LIVE_TESTNET · img/
+scripts/          smoke_test.py · make_figures.py · benchmark.py · build_site.py
 examples/         quickstart · alpha research · ML meta-labeling · custom strategy · Sharpe confidence
 tests/            causality properties, hand-computed accounting, CV leakage, paper parity, docs consistency
 ```
@@ -103,8 +105,8 @@ and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
-- Faster engine kernel (numba) with a parity test against the Python reference
-- Exchange testnet broker behind the existing `Broker` interface: idempotent orders, reconciliation, kill switch
+- Capacity and cost-sensitivity sweeps, now cheap with the compiled engine loop
+- A first live testnet session, journaled and reported alongside the backtest
 - Longer or broader real-data samples: five years of daily data cannot separate the books tested here
 - Delisted-instrument history from a second source, to remove the survivorship that remains
 
