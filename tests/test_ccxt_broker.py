@@ -133,6 +133,9 @@ def test_foreign_trade_trips_position_desync_and_halt_persists(tmp_path: Path) -
     restarted = _broker(ex, tmp_path)
     with pytest.raises(KillSwitchTriggeredError, match="reset by hand"):
         restarted.sync(data)
+    ex.positions["ETH/USDT:USDT"] = (-0.999, 2_500.0)  # flatten the foreign trade by hand
+    restarted.reset_kill_switch(operator="test")
+    assert not _broker(ex, tmp_path).kill_switch.halted, "reset is persisted"
 
 
 def test_stale_data_and_max_loss_stop_trading(tmp_path: Path) -> None:

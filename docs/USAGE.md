@@ -39,9 +39,9 @@ and drawdown overlay on data up to the latest **closed** bar. It then trades the
   Scheduler). It refreshes the data, marks the account to market, trades, and appends to
   `paper/<experiment>/{state.json, fills.csv, equity.csv}`. A second call on the same bar does
   nothing.
-* `PaperBroker` fills at the close with the backtest's cost model. A real venue adapter would
-  implement the same three-method `Broker` interface (`sync`, `execute`, `nav/weights`).
-  Nothing upstream would change. Strategies that learn are not supported yet, because they
+* `PaperBroker` fills at the close with the backtest's cost model. `CcxtTestnetBroker`
+  implements the same `Broker` interface against an exchange sandbox
+  (`--broker ccxt-testnet`, see [LIVE_TESTNET.md](LIVE_TESTNET.md)). Nothing upstream changes. Strategies that learn are not supported yet, because they
   need persisted, versioned models.
 
 ## Python API

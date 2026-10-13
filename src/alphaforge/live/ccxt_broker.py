@@ -226,6 +226,11 @@ class CcxtTestnetBroker(Broker):
         self._save_state()
         return pd.DataFrame(rows, columns=_FILL_COLUMNS)
 
+    def reset_kill_switch(self, operator: str) -> None:
+        """Manual reset after investigating the journal; persisted immediately."""
+        self.kill_switch.reset(operator)
+        self._save_state()
+
     # -- orders --------------------------------------------------------------------------
 
     def _find_order(self, client_id: str, symbol: str) -> dict[str, Any] | None:
