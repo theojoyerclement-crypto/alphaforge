@@ -60,3 +60,78 @@ def test_readme_numbers_are_published_in_results(readme: str, french: bool) -> N
     quoted = _numbers((ROOT / readme).read_text(encoding="utf-8"), french=french)
     missing = sorted(quoted - published)
     assert not missing, f"{readme} quotes numbers absent from docs/RESULTS.md: {missing}"
+
+
+def _load_make_figures():  # type: ignore[no-untyped-def]
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "make_figures", ROOT / "scripts" / "make_figures.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_figure_numbers_are_published_in_results() -> None:
+    """Every value drawn on a README figure (docs/img/figures.json) is a published number."""
+    import json
+
+    shown = json.loads((ROOT / "docs" / "img" / "figures.json").read_text(encoding="utf-8"))
+    flat: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+        else:
+            flat.append(str(node))
+
+    walk(shown)
+    published = _numbers(RESULTS.read_text(encoding="utf-8"))
+    missing = sorted(v.lstrip("+") for v in flat if v.lstrip("+") not in published)
+    assert flat and not missing, f"figures show numbers absent from docs/RESULTS.md: {missing}"
+    for name in ("equity_pit_vs_btc", "cost_stress", "sharpe_intervals"):
+        assert (ROOT / "docs" / "img" / f"{name}.png").stat().st_size > 10_000
+
+
+def test_figure_functions_render_without_exchange_data(tmp_path: Path) -> None:
+    import numpy as np
+    import pandas as pd
+
+    mf = _load_make_figures()
+    idx = pd.date_range("2022-01-01", periods=300, tz="UTC")
+    rng = np.random.default_rng(0)
+    book, bench = (pd.Series(rng.normal(0, 0.02, 300), index=idx) for _ in range(2))
+    labels = {"book_label": "a", "bench_label": "b"}
+    numbers = {
+        **labels,
+        **{f"{k}_{m}": "0.00" for k in ("book", "bench") for m in ("sharpe", "maxdd")},
+    }
+    rows = [
+        {
+            "label": "x",
+            "benchmark": False,
+            "estimate": 0.5,
+            "low": -0.2,
+            "high": 1.1,
+            "estimate_txt": "0.50",
+            "low_txt": "-0.20",
+            "high_txt": "1.10",
+        },
+    ]
+    for i, fig in enumerate(
+        (
+            mf.equity_figure(book, bench, numbers),
+            mf.cost_stress_figure(["a", "b", "c"], [1.8, -0.3, -2.9], ["+1.80", "-0.30", "-2.90"]),
+            mf.interval_figure(rows),
+        )
+    ):
+        fig.savefig(tmp_path / f"{i}.png", dpi=mf.DPI)
+        assert (tmp_path / f"{i}.png").stat().st_size > 5_000
+    assert mf.fmt(-0.0835) == "-0.08" and mf.fmt(1.83, signed=True) == "+1.83"
+    assert mf.fmt(-0.4271, 1, pct=True) == "-42.7%"
