@@ -62,6 +62,9 @@ class BacktestEngine:
         drawdown_controller: Optional path-dependent exposure overlay.
         adv_lookback: Bars of dollar volume averaged into ADV for impact.
         vol_halflife: Half-life of the per-bar volatility used by impact.
+        drawdown_basis: ``"shadow"`` (default) feeds the controller the NAV of the same book
+            at full exposure, simulated alongside; ``"realized"`` feeds it the overlaid NAV,
+            whose drawdown freezes once exposure is cut (see docs/METHODOLOGY.md section 6).
     """
 
     def __init__(
@@ -73,9 +76,12 @@ class BacktestEngine:
         drawdown_controller: DrawdownController | None = None,
         adv_lookback: int = 20,
         vol_halflife: int = 20,
+        drawdown_basis: str = "shadow",
     ) -> None:
         if execution_delay < 0:
             raise ValueError("execution_delay must be >= 0")
+        if drawdown_basis not in ("shadow", "realized"):
+            raise ValueError("drawdown_basis must be 'shadow' or 'realized'")
         self.cost_model = cost_model or LinearCostModel()
         self.execution_delay = execution_delay
         self.initial_capital = initial_capital
@@ -83,6 +89,7 @@ class BacktestEngine:
         self.drawdown_controller = drawdown_controller
         self.adv_lookback = adv_lookback
         self.vol_halflife = vol_halflife
+        self.drawdown_basis = drawdown_basis
 
     @classmethod
     def from_config(
@@ -103,7 +110,22 @@ class BacktestEngine:
             drawdown_controller=controller,
             adv_lookback=costs.adv_lookback,
             vol_halflife=costs.vol_halflife,
+            drawdown_basis=risk.drawdown_basis if risk is not None else "shadow",
         )
+
+    def trade(
+        self, drifted: np.ndarray, nav: float, target: np.ndarray, vol: np.ndarray, adv: np.ndarray
+    ) -> tuple[float, float, np.ndarray]:
+        """Rebalance drifted weights to ``target`` at the close: ``(nav_post, cost, trades)``.
+
+        Shared by the real book, the shadow book and :class:`alphaforge.live.PaperBroker`, so the
+        three cannot diverge through duplicated cost arithmetic.
+        """
+        if nav <= 0:
+            return 0.0, 0.0, np.zeros_like(drifted)
+        trades = target - drifted
+        cost = float(self.cost_model.compute(trades, nav, vol, adv).sum())
+        return nav * (1.0 - cost), cost, trades
 
     def cost_inputs(self, data: MarketData) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Per-bar volatility and average dollar volume fed to the cost model.
@@ -167,9 +189,12 @@ class BacktestEngine:
         controller = self.drawdown_controller
         if controller is not None:
             controller.reset()
+        use_shadow = controller is not None and self.drawdown_basis == "shadow"
+        shadow_equity = np.zeros(n_bars)
 
         nav = self.initial_capital
         w = np.zeros(n_assets)
+        nav_s, w_s = self.initial_capital, np.zeros(n_assets)  # shadow book: full exposure
         for i, t in enumerate(range(first, len(index))):
             price_pnl, funding_pnl, growth, w_drift = mark_to_market(w, R[t], F[t])
             if growth <= 0:
@@ -178,15 +203,21 @@ class BacktestEngine:
             else:
                 nav_pre = nav * growth
 
-            scale = controller.update(nav_pre) if controller is not None and nav_pre > 0 else 1.0
+            basis = nav_pre
+            if use_shadow:
+                _, _, growth_s, drift_s = mark_to_market(w_s, R[t], F[t])
+                basis = nav_s * growth_s if growth_s > 0 else 0.0
+                full = desired[t] if basis > 0 else np.zeros(n_assets)
+                nav_s, _, _ = self.trade(drift_s, basis, full, vol[t], adv[t])
+                w_s = full
+                shadow_equity[i] = nav_s
+
+            if controller is None or nav_pre <= 0:
+                scale = 1.0
+            else:
+                scale = controller.update(basis) if basis > 0 else 0.0
             target = desired[t] * scale if nav_pre > 0 else np.zeros(n_assets)
-            trades = target - w_drift
-            cost = (
-                float(self.cost_model.compute(trades, nav_pre, vol[t], adv[t]).sum())
-                if nav_pre > 0
-                else 0.0
-            )
-            nav_post = nav_pre * (1.0 - cost)
+            nav_post, cost, trades = self.trade(w_drift, nav_pre, target, vol[t], adv[t])
 
             net[i] = nav_post / nav - 1.0 if nav > 0 else 0.0
             gross[i] = price_pnl
@@ -214,4 +245,7 @@ class BacktestEngine:
             net_leverage=pos.sum(axis=1).rename("net_leverage"),
             risk_scale=pd.Series(risk_scale, index=idx, name="risk_scale"),
             periods_per_year=data.periods_per_year,
+            shadow_equity=pd.Series(shadow_equity, index=idx, name="shadow_equity")
+            if use_shadow
+            else None,
         )

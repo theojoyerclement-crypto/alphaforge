@@ -175,6 +175,12 @@ class RiskConfig(_Model):
     max_drawdown: float | None = Field(0.30, gt=0, lt=1, description="Hard stop: go flat")
     drawdown_soft_limit: float | None = Field(0.15, gt=0, lt=1, description="Start de-risking")
     cooldown_bars: int = Field(20, ge=0, description="Bars flat after a hard-stop breach")
+    drawdown_basis: Literal["shadow", "realized"] = Field(
+        "shadow",
+        description="Equity the drawdown is measured on. 'shadow' (v2, default): the same book "
+        "at full exposure, so the overlay cannot freeze its own drawdown. 'realized' (v1): the "
+        "overlaid book itself, kept to reproduce earlier results (docs/METHODOLOGY.md section 6)",
+    )
 
     @model_validator(mode="after")
     def _soft_below_hard(self) -> RiskConfig:

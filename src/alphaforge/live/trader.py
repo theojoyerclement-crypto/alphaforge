@@ -3,10 +3,12 @@
 ``PaperTrader.step(data)`` is what a scheduler would call after each bar closes:
 
 1. ``broker.sync``: mark the account to the new bar(s).
-2. Drawdown overlay on the account's own NAV (same controller as the backtest).
-3. Signals from the configured strategies and targets from :class:`PortfolioConstructor`,
+2. Signals from the configured strategies and targets from :class:`PortfolioConstructor`,
    built from data up to the current close only.
-4. ``broker.execute`` the target decided ``execution_delay`` bars ago.
+3. Drawdown overlay, as in the backtest: with ``drawdown_basis: shadow`` the trader keeps a
+   second paper account that always holds the full-exposure target, and the controller
+   watches *its* NAV; with ``realized`` it watches the real account.
+4. ``broker.execute`` the target decided ``execution_delay`` bars ago, times the multiplier.
 
 Step 4 takes row ``-1 - delay`` of a target panel computed *now*. That equals what was
 decided at that bar only because every strategy and the portfolio constructor are causal;
@@ -46,6 +48,7 @@ class StepReport:
     target: pd.Series
     fills: pd.DataFrame
     skipped: bool = False  # the bar had already been processed
+    shadow_nav: float | None = None  # full-exposure account the overlay watches (v2)
 
 
 class PaperTrader:
@@ -74,6 +77,8 @@ class PaperTrader:
         self.controller = self.engine.drawdown_controller
         self.delay = config.backtest.execution_delay
         self.broker: Broker = broker or PaperBroker(self.engine)
+        use_shadow = self.controller is not None and self.engine.drawdown_basis == "shadow"
+        self.shadow: PaperBroker | None = PaperBroker(self.engine) if use_shadow else None
 
     def decide(self, data: MarketData) -> pd.Series:
         """Target weights to trade at the last bar: the row decided ``delay`` bars ago."""
@@ -94,11 +99,21 @@ class PaperTrader:
 
         broker.sync(data)
         nav_before = broker.nav
+        full = self.decide(data)
+        basis = nav_before
+        if self.shadow is not None:
+            self.shadow.sync(data)
+            basis = self.shadow.nav
+            self.shadow.execute(full, data)
         controller = self.controller
-        scale = controller.update(nav_before) if controller is not None and nav_before > 0 else 1.0
-        target = self.decide(data) * scale
+        if controller is None or nav_before <= 0:
+            scale = 1.0
+        else:
+            scale = controller.update(basis) if basis > 0 else 0.0
+        target = full * scale
         fills = broker.execute(target, data)
-        return StepReport(bar, nav_before, broker.nav, scale, target, fills)
+        shadow_nav = None if self.shadow is None else self.shadow.nav
+        return StepReport(bar, nav_before, broker.nav, scale, target, fills, shadow_nav=shadow_nav)
 
     def replay(self, data: MarketData, start: str | pd.Timestamp) -> pd.DataFrame:
         """Step through every bar from ``start``, each time seeing only data up to that bar.
@@ -133,6 +148,7 @@ class PaperTrader:
         payload: dict[str, Any] = {
             "experiment": self.config.name,
             "account": self.broker.state.to_dict(),
+            "shadow_account": None if self.shadow is None else self.shadow.state.to_dict(),
             "drawdown_controller": self.controller.state_dict() if self.controller else None,
         }
         target = Path(path)
@@ -153,6 +169,14 @@ class PaperTrader:
                 f"not {config.name!r}; use another --state-dir"
             )
         trader.broker = PaperBroker(trader.engine, AccountState.from_dict(payload["account"]))
+        if trader.shadow is not None:
+            shadow_state = payload.get("shadow_account")
+            if shadow_state is None:
+                raise ValueError(
+                    f"{source} has no shadow account (written with drawdown_basis: realized); "
+                    "resume with that setting or start a new --state-dir"
+                )
+            trader.shadow = PaperBroker(trader.engine, AccountState.from_dict(shadow_state))
         if trader.controller is not None and payload.get("drawdown_controller"):
             trader.controller.load_state_dict(payload["drawdown_controller"])
         return trader

@@ -30,6 +30,7 @@ class BacktestResult:
     net_leverage: pd.Series
     risk_scale: pd.Series  # drawdown-controller multiplier
     periods_per_year: float
+    shadow_equity: pd.Series | None = None  # full-exposure book the overlay watches (v2)
 
     def metrics(self) -> PerformanceMetrics:
         """Performance statistics of the net return stream."""
@@ -54,6 +55,7 @@ class BacktestResult:
                 "gross_leverage": self.gross_leverage,
                 "net_leverage": self.net_leverage,
                 "risk_scale": self.risk_scale,
+                **({} if self.shadow_equity is None else {"shadow_equity": self.shadow_equity}),
             }
         )
 

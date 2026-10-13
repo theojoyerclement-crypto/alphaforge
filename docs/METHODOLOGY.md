@@ -97,8 +97,9 @@ requires it to stay silent when the sample is too small. Edges are calibrated to
 
 `configs/binance_perps.yaml` was written before the real data was looked at and has not been
 tuned since. Running it on Binance USDT-M perps (Jul 2021 – Oct 2026) gives a net Sharpe of
-0.35, against 0.44 for BTC buy & hold, with a −28% drawdown instead of −78% and near-zero
-beta. Three lessons generalise:
+0.53 with overlay v2 (0.35 under v1), against 0.44 for BTC buy & hold. The drawdown is −33%
+instead of −78%, with near-zero beta. No confidence interval has been computed yet. Three
+lessons generalise:
 
 * **Hindsight universes flatter results.** Picking the 12 coins that are large *today* is a
   selection on the outcome. The point-in-time variant (`binance_perps_pit.yaml`) trades the
@@ -118,8 +119,8 @@ Two failure modes surfaced only on real data and are now handled in code:
   zero-volatility asset and a maximal position. `clean_ohlcv` drops runs of `stale_bars` flat,
   zero-volume bars, and `alphaforge validate` reports them.
 * **Path-dependent overlays can trap a book.** With a linear de-risking band between the soft
-  and hard drawdown limits, the PIT book sat at 5–10% exposure for four years. This is reported
-  as found and has not been tuned away.
+  and hard drawdown limits, the v1 overlay kept the PIT book at 5–10% exposure for four years.
+  The pre-registered fix (v2) and its outcome are in §6.
 
 Full tables and caveats are in the [README](../README.md#5-real-market-binance-usdt-m-perpetuals).
 
@@ -165,6 +166,24 @@ bar *t* uses data ≤ *t*.
 * **Reporting.** Every reference config is re-run with v2, and v1 / v2 / overlay off are
   published side by side, whatever the outcome. If v2 does worse, that is reported as it is,
   and any later change to the overlay needs a new pre-registration.
+
+**Outcome (added after the run; nothing above was edited).** The four acceptance tests are in
+`tests/test_overlay.py` and passed before any reference config was re-run. With
+`drawdown_basis: realized`, every earlier result is reproduced exactly (equity gap ≤ 1e-15).
+
+| Portfolio Sharpe (max DD) | v1 | v2 | overlay off |
+|---|---:|---:|---:|
+| Synthetic multi-strategy | 1.37 (−18.1%) | 1.37 (−18.2%) | 1.38 (−17.8%) |
+| Binance, fixed universe | 0.35 (−27.7%) | 0.53 (−32.8%) | 0.53 (−31.2%) |
+| Binance, point-in-time | −0.63 (−29.5%) | −0.08 (−42.7%) | −0.15 (−49.9%) |
+| Walk-forward ML book | −0.13 (−25.9%) | −0.05 (−29.7%) | 0.19 (−26.9%) |
+
+* The trap is gone: mean exposure in the PIT run goes from 0.24 to 0.89.
+* v2 shows no demonstrable value over having no overlay at all. The differences go both ways
+  and are within the noise.
+* v1's lower drawdowns came from being out of the market. v2 does not cap the book's
+  drawdown at 30%, because that limit applies to the shadow book.
+* `cost_stress` is unaffected, since it disables the overlay.
 
 ## References
 

@@ -78,13 +78,17 @@ Per bar, with `w` the post-trade weights of the previous close:
 price_pnl   = w · r_t
 funding_pnl = −w · f_t                  (longs pay positive funding)
 w_drift     = w ⊙ (1 + r_t) / (1 + price_pnl + funding_pnl)
-scale       = DrawdownController.update(NAV_pre)
+scale       = DrawdownController.update(SHADOW_NAV_pre)   (v2; v1 used NAV_pre)
 trades      = target_{t−delay} · scale − w_drift
 cost        = Σ |trades| (fee + half_spread) + |trades| · k · σ · sqrt(|trades| · NAV / ADV)
 net_return  = price_pnl + funding_pnl − cost · (1 + price_pnl + funding_pnl)
 ```
 
 The identity `net = gross + funding − costs` holds exactly and is asserted in the tests.
+`SHADOW_NAV` is a second book run in the same loop, trading `target_{t−delay}` at full
+exposure through the same `mark_to_market` and `trade` functions. It is therefore exactly the
+overlay-off book (asserted), and the overlay cannot freeze its own drawdown
+(METHODOLOGY §6).
 
 ## Extension points
 

@@ -9,7 +9,7 @@ commit, à la seed et au hash des données près.
 
 🇬🇧 [English version](README.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Méthodologie](docs/METHODOLOGY.md) · 🤝 [Contribuer](CONTRIBUTING.md)
 
-[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-181%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
+[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-190%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
 
 ---
 
@@ -84,7 +84,7 @@ l'ordre est exécuté.
 
 | | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/an |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portefeuille (risk parity, cible 20 % de vol)** | **30,3 %** | 21,0 % | **1,37** | 2,08 | −18,1 % | 168× |
+| **Portefeuille (risk parity, cible 20 % de vol)** | **30,3 %** | 21,0 % | **1,37** | 2,08 | −18,2 % | 168× |
 | Carry de funding | 36,3 % | 16,0 % | 2,02 | 3,10 | −15,2 % | 51× |
 | Momentum cross-sectionnel | 5,8 % | 15,1 % | 0,45 | 0,63 | −24,7 % | 76× |
 | Momentum time-series | 0,7 % | 15,3 % | 0,12 | 0,17 | −20,2 % | 49× |
@@ -113,7 +113,9 @@ simple règle de carry sur ces données, et le framework le dit.
 > car un vrai ERC diversifie mieux la sleeve carry. Sharpe Binance 0,42 → **0,35**, car les
 > barres mal allouées étaient des paris concentrés qui avaient été chanceux. Les sleeves, la
 > recherche d'alphas, le stress des coûts et le ML en walk-forward n'utilisent pas le solveur et
-> sont inchangés (l'equity walk-forward bouge de moins de 1e-10).
+> sont inchangés (l'equity walk-forward bouge de moins de 1e-10). Les lignes « portefeuille » ont
+> ensuite encore bougé avec l'overlay de drawdown v2 pré-enregistré : voir
+> [Overlay de drawdown v1 contre v2](#overlay-de-drawdown-v1-contre-v2).
 
 ### 5. Marché réel : perpétuels Binance USDT-M
 
@@ -125,7 +127,7 @@ LINK, DOT, LTC, ATOM), barres journalières, funding réel toutes les 8 h, éval
 
 | Net de tous coûts et du funding | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/an |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portefeuille (risk parity, cible 20 % de vol)** | **4,9 %** | 18,0 % | **0,35** | 0,50 | −27,7 % | 119× |
+| **Portefeuille (risk parity, cible 20 % de vol)** | **9,0 %** | 20,4 % | **0,53** | 0,78 | −32,8 % | 141× |
 | Momentum time-series | 5,5 % | 15,5 % | 0,43 | 0,61 | −22,9 % | 38× |
 | Carry de funding | 5,1 % | 16,7 % | 0,38 | 0,53 | −28,8 % | 60× |
 | Momentum cross-sectionnel | 2,1 % | 17,0 % | 0,21 | 0,29 | −30,7 % | 91× |
@@ -133,10 +135,10 @@ LINK, DOT, LTC, ATOM), barres journalières, funding réel toutes les 8 h, éval
 | *Référence : BTC perp buy & hold* | *10,0 %* | *52,2 %* | *0,44* | | *−78,0 %* | |
 | *Référence : panier long équipondéré* | *−1,0 %* | *68,4 %* | *0,33* | | *−79,3 %* | |
 
-Par année civile : 2021 S2 +10,5 % · 2022 −17,4 % · 2023 +3,3 % · 2024 +23,8 % · 2025 +22,0 % ·
-2026 à date −9,7 %. Attribution annualisée : prix +11,6 %, funding +2,0 %, **coûts −7,3 %**.
-Le portefeuille est à peu près market-neutral (exposition nette moyenne −0,01, brute 0,92,
-corrélation journalière à BTC −0,12).
+Par année civile : 2021 S2 +10,5 % · 2022 −17,3 % · 2023 +24,7 % · 2024 +26,2 % · 2025 +21,9 % ·
+2026 à date −9,9 %. Attribution annualisée : prix +17,1 %, funding +2,2 %, **coûts −8,6 %**.
+Le portefeuille est à peu près market-neutral (exposition nette moyenne −0,02, brute 1,07,
+corrélation journalière à BTC −0,10).
 
 **5b. Le même portefeuille sur un univers point-in-time** (`configs/binance_perps_pit.yaml`).
 La liste de 12 coins ci-dessus est un choix a posteriori : ces coins sont gros aujourd'hui
@@ -150,8 +152,9 @@ volatilité nulle.
 
 | Net de tous coûts et du funding | CAGR | Vol | Sharpe | Max DD | Turnover/an |
 |---|---:|---:|---:|---:|---:|
-| **Portefeuille (overlay de drawdown par défaut)** | **−4,5 %** | 6,9 % | **−0,63** | −29,5 % | 25× |
-| Portefeuille, overlay de drawdown désactivé | −5,1 % | 20,6 % | −0,15 | | |
+| **Portefeuille (overlay par défaut, v2)** | **−3,3 %** | 19,0 % | **−0,08** | −42,7 % | 111× |
+| Portefeuille, overlay v1 (piégé) | −4,5 % | 6,9 % | −0,63 | −29,5 % | 25× |
+| Portefeuille, sans overlay | −5,1 % | 20,6 % | −0,15 | −49,9 % | 123× |
 | Momentum time-series | 5,0 % | 15,3 % | 0,39 | −20,4 % | 35× |
 | Momentum cross-sectionnel | 1,1 % | 15,2 % | 0,15 | −21,8 % | 65× |
 | Carry de funding | −5,7 % | 15,0 % | **−0,32** | −41,3 % | 47× |
@@ -163,16 +166,12 @@ Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
   portefeuille passe de +0,53 sur l'univers a posteriori à −0,15 en point-in-time. Le carry de
   funding passe de +0,38 à −0,32. Seul le momentum time-series résiste (0,43 → 0,39). Le
   chiffre de référence est le chiffre point-in-time.
-* **Pas de meilleur rendement ajusté du risque que de détenir du BTC**, même sur l'univers
-  flatteur (Sharpe 0,35 contre 0,44). Les vraies différences sont un drawdown de −28 % au lieu de
-  −78 % et un bêta proche de zéro.
-* **L'overlay de drawdown par défaut a un défaut connu.** Entre la limite souple (15 %) et la
-  limite dure (30 %), l'exposition décroît linéairement. En 5b, elle est tombée à 5–10 % pendant
-  quatre ans : trop peu pour regagner le plus-haut, jamais assez bas pour atteindre le stop dur
-  qui le réinitialise. Il coûte aussi du Sharpe sur l'univers fixe (0,53 → 0,35). Le corriger
-  est le prochain point de la feuille de route. Changer la valeur par défaut après avoir vu ces
-  chiffres reviendrait à régler sur l'échantillon de test.
-* **Les coûts prennent plus de la moitié de l'edge brut en prix.** Le framework les fait payer,
+* **Rien ici ne bat la détention de BTC de façon fiable.** Sur l'univers flatteur, le Sharpe du
+  portefeuille (0,53) est un peu au-dessus de celui de BTC (0,44), avec un drawdown de −33 % au
+  lieu de −78 % et un bêta proche de zéro. Sur l'univers point-in-time, il est négatif. Aucun
+  intervalle de confiance n'a encore été calculé, et sur cinq ans de données journalières un
+  écart de 0,1 de Sharpe est largement dans le bruit.
+* **Les coûts prennent environ la moitié de l'edge brut en prix.** Le framework les fait payer,
   c'est le but.
 * Sur données réelles, le classement des alphas retient les signaux de funding
   (`funding_reversal_90` t = 3,4, `funding_carry_21` t = 2,0, tous deux significatifs après BH)
@@ -184,6 +183,38 @@ Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
   candidats : le biais du survivant est réduit, pas supprimé. Il n'y a qu'une plateforme et une
   seule trajectoire, sans analyse de capacité. C'est un contrôle de cohérence de la chaîne sur
   données réelles, pas un historique de performance.
+
+### Overlay de drawdown v1 contre v2
+
+L'overlay v1 mesurait le drawdown sur l'equity qu'il produisait lui-même. Une fois l'exposition
+réduite, cette equity cessait de bouger et le drawdown se figeait. Le portefeuille 5b est resté
+à 5–10 % d'exposition pendant quatre ans. La correction a été **pré-enregistrée** dans
+[METHODOLOGY §6](docs/METHODOLOGY.md#6-pre-registered-change-drawdown-overlay-v2-2026-10-13)
+et commitée (`cc2ba29`) avant le calcul de tous les chiffres ci-dessous. La v2 mesure le
+drawdown sur un **book fantôme** : les mêmes cibles à exposition pleine, avec les mêmes coûts et
+le même funding. Les seuils sont inchangés (15 % / 30 % / 20 barres). La v1 reste disponible
+via `risk.drawdown_basis: realized` et reproduit exactement les anciens tableaux.
+
+| Sharpe du portefeuille (max DD) | v1 (realized) | **v2 (fantôme, défaut)** | sans overlay |
+|---|---:|---:|---:|
+| Synthétique multi-stratégies | 1,37 (−18,1 %) | **1,37 (−18,2 %)** | 1,38 (−17,8 %) |
+| Binance, univers fixe | 0,35 (−27,7 %) | **0,53 (−32,8 %)** | 0,53 (−31,2 %) |
+| Binance, point-in-time | −0,63 (−29,5 %) | **−0,08 (−42,7 %)** | −0,15 (−49,9 %) |
+| Portefeuille ML walk-forward | −0,13 (−25,9 %) | **−0,05 (−29,7 %)** | 0,19 (−26,9 %) |
+| Multiplicateur d'exposition moyen (PIT) | 0,24 | **0,89** | 1,00 |
+
+Publié tel quel, sans réglage supplémentaire :
+
+* **Le piège a disparu.** Dans le run point-in-time, l'exposition moyenne passe de 0,24 à 0,89,
+  et la part des barres sous la moitié de l'exposition de 85 % à 11 %.
+* **La v2 n'apporte pas de valeur démontrable par rapport à l'absence d'overlay.** Elle est à
+  égalité sur l'univers fixe, un peu meilleure en point-in-time et moins bonne sur le
+  portefeuille ML. Ces écarts sont dans le bruit.
+* **Les faibles drawdowns de la v1 étaient un artefact.** Elle était hors du marché. La v2 ne
+  plafonne **pas** le drawdown du portefeuille à la limite dure de 30 %, car cette limite
+  s'applique au drawdown du book fantôme : le max DD atteint −33 % sur l'univers fixe et −43 %
+  en point-in-time.
+* Toute nouvelle modification de l'overlay nécessitera une nouvelle pré-registration.
 
 ## Démarrage rapide
 
@@ -212,7 +243,7 @@ replay paper-trading de 10 barres. Il affiche le chemin du rapport HTML
 `--quick` saute les tests. Les commandes individuelles :
 
 ```bash
-pytest                                                # 181 tests, ~2 min
+pytest                                                # 190 tests, ~2 min
 alphaforge list                                       # stratégies, features, alphas
 alphaforge research configs/multi_strategy.yaml       # classement des alphas
 alphaforge run configs/multi_strategy.yaml            # backtest + rapport HTML dans runs/

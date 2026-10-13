@@ -158,13 +158,12 @@ class PaperBroker(Broker):
         close = data.close.iloc[-1]
         desired = target.reindex(symbols).fillna(0.0).where(close.notna(), 0.0).to_numpy()
         before = self._book(symbols)
-        trades = desired - before
-        vol, adv = self.engine.cost_inputs(data)
-        cost = self.engine.cost_model.compute(
-            trades, self.state.nav, vol.iloc[-1].to_numpy(), adv.iloc[-1].to_numpy()
-        )
+        vol_frame, adv_frame = self.engine.cost_inputs(data)
+        vol, adv = vol_frame.iloc[-1].to_numpy(), adv_frame.iloc[-1].to_numpy()
         nav_pre = self.state.nav
-        self.state.nav = nav_pre * (1.0 - float(cost.sum()))
+        # NAV moves through the engine's own trade step; per-asset costs are only for the log.
+        self.state.nav, _, trades = self.engine.trade(before, nav_pre, desired, vol, adv)
+        cost = self.engine.cost_model.compute(trades, nav_pre, vol, adv)
         self.state.weights = {
             s: float(x) for s, x in zip(symbols, desired, strict=True) if x != 0.0
         }
