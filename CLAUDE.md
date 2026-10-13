@@ -24,7 +24,7 @@ Design rationale: `docs/ARCHITECTURE.md`; bias controls: `docs/METHODOLOGY.md`. 
 - Engine identity `net = gross + funding − costs` is asserted in tests.
 - `live/` (paper trading) must reuse the backtest's code: `mark_to_market`, `cost_model`, `cost_inputs`,
   `PortfolioConstructor`. `tests/test_live.py` asserts replayed paper NAV == `BacktestEngine` equity.
-- Real-data README tables use `configs/binance_perps.yaml` and `configs/binance_perps_pit.yaml` with `--set data.end=2026-10-12`; data lives in `data/store/` (not committed).
+- Real-data tables (`docs/RESULTS.md`) use `configs/binance_perps.yaml` and `configs/binance_perps_pit.yaml` with `--set data.end=2026-10-12`; data lives in `data/store/` (not committed).
 - Datetime resolution varies in pandas 3 (us for synthetic, ms for Binance): never compare raw `asi8`/`.value` across indexes; convert with `.as_unit("ns")` or use Timedelta arithmetic.
 - `load_market_data` keeps its `(data, cleaning)` API; `load_dataset` adds the quality audit and file provenance used by run manifests.
 - Universe membership (`data.universe`) gates sizing in `PortfolioConstructor.tradable`; strategies still see every candidate.
@@ -36,6 +36,6 @@ Design rationale: `docs/ARCHITECTURE.md`; bias controls: `docs/METHODOLOGY.md`. 
 - Register new pieces with `@register_feature` / `@register_strategy`; expose public names in the package `__init__`.
 - Config changes: edit `config/schema.py` (pydantic, `extra="forbid"`) and keep `configs/*.yaml` valid (tested).
 - Synthetic data is the test oracle: planted edges are trend, 1-bar reversal, funding carry. Don't recalibrate
-  `SyntheticConfig` defaults without updating `tests/test_alpha.py` and the README results tables.
-- Results quoted in the READMEs come from real runs of `configs/*.yaml`; re-run and update them if behaviour changes.
+  `SyntheticConfig` defaults without updating `tests/test_alpha.py` and `docs/RESULTS.md`.
+- Published numbers live in `docs/RESULTS.md` (from real runs of `configs/*.yaml`); READMEs and `docs/img/figures.json` may only quote them (`tests/test_docs.py`). Figures: `python scripts/make_figures.py`.
 - `runs/` and `data/store/` are git-ignored artifacts.
