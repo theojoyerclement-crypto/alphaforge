@@ -20,7 +20,7 @@ single typed configuration file and is reproducible down to the commit, seed and
 | **Anti-look-ahead tests** | Future data is scrambled and every feature, strategy and the portfolio constructor must give the same past | `tests/test_features.py`, `tests/test_strategies.py`, `tests/test_live.py` |
 | **Accounting identities** | `net = gross + funding − costs` checked against hand-computed books | `tests/test_backtest.py` |
 | **Real-data results, including the bad ones** | Binance perps, net of fees, spread, impact and funding, compared with buy & hold | [Real data](#5-real-market-binance-usdt-m-perpetuals) |
-| **A significant alpha that loses money** | t = 5.5, Sharpe +1.8 without frictions, −2.9 once costs and latency are charged | [Results §2](#results) |
+| **A significant alpha that loses money** | t = 5.5, Sharpe +1.83 without frictions, −2.91 once costs and latency are charged | [Results §2](#results) |
 | **ML that does not win** | Walk-forward ML loses to a carry rule, and the README says so | [Results §4](#results) |
 | **Honest uncertainty** | Every portfolio Sharpe gets a paired block-bootstrap interval. On real data none is distinguishable from 0 or from BTC, and the README says so | [Noise](#how-much-of-this-is-noise) |
 | **Backtest ↔ live parity** | The paper loop recomputes decisions bar by bar and matches backtest equity to 1e-10 | `alphaforge paper ... --replay N`, `src/alphaforge/live/` |

@@ -21,7 +21,7 @@ commit, à la seed et au hash des données près.
 | **Tests anti look-ahead** | Le futur est brouillé et chaque feature, chaque stratégie et le constructeur de portefeuille doivent donner le même passé | `tests/test_features.py`, `tests/test_strategies.py`, `tests/test_live.py` |
 | **Identités comptables** | `net = brut + funding − coûts`, vérifié contre des carnets calculés à la main | `tests/test_backtest.py` |
 | **Résultats sur données réelles, y compris les mauvais** | Perpétuels Binance, nets de frais, spread, impact et funding, comparés au buy & hold | [Données réelles](#5-marché-réel--perpétuels-binance-usdt-m) |
-| **Un alpha significatif qui perd de l'argent** | t = 5,5, Sharpe +1,8 sans friction, −2,9 avec coûts et latence | [Résultats §2](#résultats) |
+| **Un alpha significatif qui perd de l'argent** | t = 5,5, Sharpe +1,83 sans friction, −2,91 avec coûts et latence | [Résultats §2](#résultats) |
 | **Un ML qui ne gagne pas** | Le ML en walk-forward perd face à une règle de carry, et le README le dit | [Résultats §4](#résultats) |
 | **Incertitude assumée** | Chaque Sharpe de portefeuille a un intervalle par bootstrap par blocs apparié. Sur données réelles, aucun ne se distingue de 0 ni de BTC, et le README le dit | [Bruit](#quelle-part-de-bruit-) |
 | **Parité backtest ↔ live** | La boucle paper recalcule les décisions barre par barre et retrouve l'equity du backtest à 1e-10 | `alphaforge paper ... --replay N`, `src/alphaforge/live/` |
