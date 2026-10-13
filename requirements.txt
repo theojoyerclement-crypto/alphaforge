@@ -11,5 +11,8 @@ pyarrow>=14.0
 # Optional: gradient boosting models for the ML layer (falls back to scikit-learn if absent)
 lightgbm>=4.0
 
+# Optional: compiled backtest loop (falls back to the Python reference loop if absent)
+numba>=0.60
+
 # Optional: live exchange data ingestion (Binance, Bybit, OKX, ... via CCXT)
 ccxt>=4.0

@@ -19,7 +19,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
-        run: pip install -e ".[ml,dev]"
+        run: pip install -e ".[ml,dev,fast]"
       - name: Lint
         run: ruff check src tests examples scripts && ruff format --check src tests examples scripts
       - name: Type-check

@@ -19,7 +19,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from alphaforge.backtest.costs import CostModel, LinearCostModel, build_cost_model
+from alphaforge.backtest.costs import (
+    CostModel,
+    LinearCostModel,
+    SquareRootImpactModel,
+    build_cost_model,
+)
 from alphaforge.backtest.results import BacktestResult
 from alphaforge.config.schema import BacktestConfig, CostConfig, RiskConfig
 from alphaforge.data.market_data import MarketData
@@ -62,6 +67,10 @@ class BacktestEngine:
         drawdown_controller: Optional path-dependent exposure overlay.
         adv_lookback: Bars of dollar volume averaged into ADV for impact.
         vol_halflife: Half-life of the per-bar volatility used by impact.
+        kernel: ``"auto"`` (default) runs the compiled numba loop when numba is installed and
+            the cost model and controller are the built-in ones, else the Python loop;
+            ``"python"`` forces the Python reference; ``"numba"`` requires the compiled loop.
+            Both give the same results to 1e-10 (``tests/test_kernel.py``).
         drawdown_basis: ``"shadow"`` (default) feeds the controller the NAV of the same book
             at full exposure, simulated alongside; ``"realized"`` feeds it the overlaid NAV,
             whose drawdown freezes once exposure is cut (see docs/METHODOLOGY.md section 6).
@@ -77,11 +86,14 @@ class BacktestEngine:
         adv_lookback: int = 20,
         vol_halflife: int = 20,
         drawdown_basis: str = "shadow",
+        kernel: str = "auto",
     ) -> None:
         if execution_delay < 0:
             raise ValueError("execution_delay must be >= 0")
         if drawdown_basis not in ("shadow", "realized"):
             raise ValueError("drawdown_basis must be 'shadow' or 'realized'")
+        if kernel not in ("auto", "python", "numba"):
+            raise ValueError("kernel must be 'auto', 'python' or 'numba'")
         self.cost_model = cost_model or LinearCostModel()
         self.execution_delay = execution_delay
         self.initial_capital = initial_capital
@@ -90,6 +102,7 @@ class BacktestEngine:
         self.adv_lookback = adv_lookback
         self.vol_halflife = vol_halflife
         self.drawdown_basis = drawdown_basis
+        self.kernel = kernel
 
     @classmethod
     def from_config(
@@ -141,42 +154,88 @@ class BacktestEngine:
         adv = data.dollar_volume().rolling(self.adv_lookback, min_periods=1).mean()
         return vol, adv
 
-    def run(
-        self,
-        target_weights: pd.DataFrame,
-        data: MarketData,
-        start: str | pd.Timestamp | None = None,
-        name: str = "portfolio",
-    ) -> BacktestResult:
-        """Simulate ``target_weights`` (fraction of NAV per asset, decided at each close).
+    def _use_kernel(self) -> bool:
+        """Whether this run can, and should, use the compiled loop."""
+        if self.kernel == "python":
+            return False
+        from alphaforge.backtest import _kernel
 
-        Args:
-            target_weights: Desired weights; rows are decision times.
-            data: Market data (risk inputs are estimated on the full history).
-            start: First bar of the evaluation; earlier bars only warm up estimators.
-            name: Label of the result.
-        """
-        index = data.index
-        symbols = data.close.columns
-        targets = target_weights.reindex(index=index, columns=symbols).fillna(0.0)
-        desired = targets.shift(self.execution_delay).fillna(0.0).to_numpy()
-        tradable = data.close.notna().to_numpy()
-        desired = np.where(tradable, desired, 0.0)
-
-        R = data.returns().fillna(0.0).to_numpy()
-        F = (
-            data.funding.reindex(index=index, columns=symbols).fillna(0.0).to_numpy()
-            if self.apply_funding and data.funding is not None
-            else np.zeros_like(R)
+        supported = type(self.cost_model) in (LinearCostModel, SquareRootImpactModel) and (
+            self.drawdown_controller is None or type(self.drawdown_controller) is DrawdownController
         )
-        vol_frame, adv_frame = self.cost_inputs(data)
-        vol, adv = vol_frame.to_numpy(), adv_frame.to_numpy()
+        if self.kernel == "numba":
+            if not _kernel.AVAILABLE:
+                raise ImportError("kernel='numba' needs numba: pip install 'alphaforge[fast]'")
+            if not supported:
+                raise ValueError("kernel='numba' supports the built-in cost models and controller")
+            return True
+        return _kernel.AVAILABLE and supported
 
-        first = 0 if start is None else int(index.searchsorted(to_utc(start)))
-        n_bars, n_assets = len(index) - first, len(symbols)
-        if n_bars <= 0:
-            raise ValueError("start is after the last bar")
+    def _run_kernel(
+        self,
+        desired: np.ndarray,
+        R: np.ndarray,
+        F: np.ndarray,
+        vol: np.ndarray,
+        adv: np.ndarray,
+        first: int,
+        name: str,
+        index: pd.DatetimeIndex,
+    ) -> tuple[np.ndarray, ...]:
+        """Compiled twin of :meth:`_run_python` (see ``backtest/_kernel.py``)."""
+        from alphaforge.backtest import _kernel
 
+        model = self.cost_model
+        assert isinstance(model, LinearCostModel)
+        kind = _kernel.SQRT_IMPACT if isinstance(model, SquareRootImpactModel) else _kernel.LINEAR
+        impact = model.impact_coefficient if isinstance(model, SquareRootImpactModel) else 0.0
+        controller = self.drawdown_controller
+        state = np.array([np.nan, 0.0, 0.0])
+        nan = float("nan")
+        out = _kernel.run_loop(
+            np.ascontiguousarray(desired, dtype=np.float64),
+            np.ascontiguousarray(R, dtype=np.float64),
+            np.ascontiguousarray(F, dtype=np.float64),
+            np.ascontiguousarray(vol, dtype=np.float64),
+            np.ascontiguousarray(adv, dtype=np.float64),
+            first,
+            float(self.initial_capital),
+            kind,
+            (model.fee_bps + model.half_spread_bps) * 1e-4,
+            float(impact),
+            controller is not None,
+            controller is not None and self.drawdown_basis == "shadow",
+            nan
+            if controller is None or controller.max_drawdown is None
+            else controller.max_drawdown,
+            nan if controller is None or controller.soft_limit is None else controller.soft_limit,
+            0 if controller is None else int(controller.cooldown_bars),
+            state,
+        )
+        if controller is not None:  # leave the controller as the Python loop would
+            controller.reset()
+            controller.load_state_dict(
+                {"hwm": None if np.isnan(state[0]) else float(state[0]),
+                 "cooldown": int(state[1]), "breaches": int(state[2])}
+            )  # fmt: skip
+        wiped = int(out[9][0])
+        if wiped >= 0:
+            logger.error("%s: NAV wiped out at %s", name, index[first + wiped])
+        return tuple(out[:9])
+
+    def _run_python(
+        self,
+        desired: np.ndarray,
+        R: np.ndarray,
+        F: np.ndarray,
+        vol: np.ndarray,
+        adv: np.ndarray,
+        first: int,
+        name: str,
+        index: pd.DatetimeIndex,
+    ) -> tuple[np.ndarray, ...]:
+        """The reference bar loop: readable, and what the tests and the paper trader mirror."""
+        n_bars, n_assets = len(index) - first, desired.shape[1]
         net = np.zeros(n_bars)
         gross = np.zeros(n_bars)
         funding = np.zeros(n_bars)
@@ -229,6 +288,50 @@ class BacktestEngine:
             equity[i] = nav_post
             nav = nav_post
             w = target
+
+        return net, gross, funding, costs, turnover, risk_scale, positions, equity, shadow_equity
+
+    def run(
+        self,
+        target_weights: pd.DataFrame,
+        data: MarketData,
+        start: str | pd.Timestamp | None = None,
+        name: str = "portfolio",
+    ) -> BacktestResult:
+        """Simulate ``target_weights`` (fraction of NAV per asset, decided at each close).
+
+        Args:
+            target_weights: Desired weights; rows are decision times.
+            data: Market data (risk inputs are estimated on the full history).
+            start: First bar of the evaluation; earlier bars only warm up estimators.
+            name: Label of the result.
+        """
+        index = data.index
+        symbols = data.close.columns
+        targets = target_weights.reindex(index=index, columns=symbols).fillna(0.0)
+        desired = targets.shift(self.execution_delay).fillna(0.0).to_numpy()
+        tradable = data.close.notna().to_numpy()
+        desired = np.where(tradable, desired, 0.0)
+
+        R = data.returns().fillna(0.0).to_numpy()
+        F = (
+            data.funding.reindex(index=index, columns=symbols).fillna(0.0).to_numpy()
+            if self.apply_funding and data.funding is not None
+            else np.zeros_like(R)
+        )
+        vol_frame, adv_frame = self.cost_inputs(data)
+        vol, adv = vol_frame.to_numpy(), adv_frame.to_numpy()
+
+        first = 0 if start is None else int(index.searchsorted(to_utc(start)))
+        if len(index) - first <= 0:
+            raise ValueError("start is after the last bar")
+
+        if self._use_kernel():
+            arrays = self._run_kernel(desired, R, F, vol, adv, first, name, index)
+        else:
+            arrays = self._run_python(desired, R, F, vol, adv, first, name, index)
+        net, gross, funding, costs, turnover, risk_scale, positions, equity, shadow_equity = arrays
+        use_shadow = self.drawdown_controller is not None and self.drawdown_basis == "shadow"
 
         idx = index[first:]
         pos = pd.DataFrame(positions, index=idx, columns=symbols)
