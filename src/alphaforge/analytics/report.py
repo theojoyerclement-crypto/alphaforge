@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import io
 import json
 from collections.abc import Mapping
@@ -14,7 +15,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from alphaforge.analytics.drawdown import drawdown_table
-from alphaforge.analytics.metrics import monthly_returns
+from alphaforge.analytics.metrics import PerformanceMetrics, monthly_returns
 from alphaforge.analytics.plots import (
     plot_allocation,
     plot_correlation_heatmap,
@@ -35,6 +36,8 @@ _PERCENT = {
     "cvar_95",
     "annual_cost_drag",
 }
+# Count-valued metrics (bars, periods), read from the dataclass so new ones are covered.
+_INTEGER = {f.name for f in dataclasses.fields(PerformanceMetrics) if str(f.type) == "int"}
 
 _CSS = """
 body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:0;
@@ -71,9 +74,32 @@ def _fmt(key: str, value: Any) -> str:
         return "n/a"
     if key in _PERCENT:
         return f"{value:.2%}"
+    if key in _INTEGER:
+        return f"{round(float(value)):,}"
     if isinstance(value, float):
         return f"{value:,.2f}"
     return str(value)
+
+
+def format_drawdowns(dd: pd.DataFrame) -> pd.DataFrame:
+    """Drawdown episodes for display: dates without time, depth in %, bar counts as integers.
+
+    An episode that has not recovered by the end of the sample shows "not recovered" rather
+    than a blank or a float NaN.
+    """
+    out = dd.copy().astype(object)
+    for col in ("peak", "trough", "recovery"):
+        if col in dd:
+            out[col] = [
+                "not recovered" if pd.isna(v) else pd.Timestamp(v).strftime("%Y-%m-%d")
+                for v in dd[col]
+            ]
+    if "depth" in dd:
+        out["depth"] = [f"{v:.2%}" for v in dd["depth"]]
+    for col in ("bars_to_trough", "bars_to_recovery", "total_bars"):
+        if col in dd:
+            out[col] = ["n/a" if pd.isna(v) else f"{int(v):,}" for v in dd[col]]
+    return out
 
 
 def _section(heading: str, body: str) -> str:
@@ -203,9 +229,14 @@ def generate_report(
     pct = attribution.map(lambda v: f"{v:.2%}")
     sections.append(_section("PnL attribution (annualised)", pct.to_html(border=0)))
     if not dd.empty:
-        sections.append(_section("Worst drawdowns", dd.to_html(border=0, index=False)))
+        worst = format_drawdowns(dd).to_html(border=0, index=False)
+        sections.append(_section("Worst drawdowns", worst))
     for name, extra in (extra_tables or {}).items():
-        body = extra.to_html(border=0, float_format=lambda v: f"{v:,.4f}")
+        shown = extra.copy()
+        for col in shown.columns:  # dates without time or time zone
+            if pd.api.types.is_datetime64_any_dtype(shown[col]):
+                shown[col] = shown[col].dt.strftime("%Y-%m-%d")
+        body = shown.to_html(border=0, float_format=lambda v: f"{v:,.4f}")
         sections.append(_section(name.replace("_", " ").title(), body))
     if config is not None:
         dumped = json.dumps(config, indent=2, default=str)
