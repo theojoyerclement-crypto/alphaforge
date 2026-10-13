@@ -82,3 +82,41 @@ def test_header_states_the_data_source(tmp_path) -> None:  # type: ignore[no-unt
     assert "Data source: not recorded" in _report_html(tmp_path / "n", {})
     summary = (tmp_path / "s" / "summary.md").read_text(encoding="utf-8")
     assert SYNTHETIC_BANNER in summary
+
+
+def embedded_charts(html: str) -> list[tuple[str, float]]:
+    """``(alt text, pixel std)`` of every embedded PNG; a blank chart has std ~ 0."""
+    import base64
+    import io
+    import re
+
+    import matplotlib.image as mpimg
+
+    charts = []
+    for alt, payload in re.findall(
+        r"<img alt='([^']*)' src='data:image/png;base64,([^']+)'>", html
+    ):
+        pixels = mpimg.imread(io.BytesIO(base64.b64decode(payload)), format="png")
+        charts.append((alt, float(np.asarray(pixels)[..., :3].std())))
+    return charts
+
+
+def test_full_report_embeds_six_non_blank_charts(tmp_path: Path) -> None:
+    from alphaforge.config import ExperimentConfig
+    from alphaforge.research import run_experiment
+
+    config = ExperimentConfig.model_validate(
+        {
+            "name": "charts",
+            "data": {"symbols": ["A", "B", "C", "D"], "synthetic": {"n_bars": 400}},
+            "strategies": [{"name": "ts_momentum"}, {"name": "funding_carry"}],
+            "portfolio": {"allocation_min_history": 20, "allocation_lookback": 40},
+            "report": {"save": True, "output_dir": str(tmp_path)},
+        }
+    )
+    run_dir = run_experiment(config).run_dir
+    assert run_dir is not None
+    charts = embedded_charts((run_dir / "report.html").read_text(encoding="utf-8"))
+    names = [alt for alt, _ in charts]
+    assert names == ["Equity", "Drawdown", "Rolling Sharpe", "Monthly", "Correlation", "Allocation"]
+    assert all(std > 0.02 for _, std in charts), charts
