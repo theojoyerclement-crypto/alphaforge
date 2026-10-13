@@ -135,3 +135,23 @@ def test_figure_functions_render_without_exchange_data(tmp_path: Path) -> None:
         assert (tmp_path / f"{i}.png").stat().st_size > 5_000
     assert mf.fmt(-0.0835) == "-0.08" and mf.fmt(1.83, signed=True) == "+1.83"
     assert mf.fmt(-0.4271, 1, pct=True) == "-42.7%"
+
+
+def test_pages_landing_quotes_published_numbers_and_flags_synthetic(tmp_path: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("build_site", ROOT / "scripts" / "build_site.py")
+    assert spec is not None and spec.loader is not None
+    site = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(site)
+
+    binance = ROOT / "docs" / "reports" / "binance_perps_pit"
+    synthetic = site.run_report(*site.SYNTHETIC, tmp_path / "synthetic")
+    page = site.landing_page(binance, synthetic)
+
+    assert page.index("reference result") < page.index("Synthetic multi-strategy book")
+    synthetic_card = page[page.index("Synthetic multi-strategy book") - 400 :]
+    assert site.SYNTHETIC_BANNER in synthetic_card
+    assert site.SYNTHETIC_BANNER not in page[: page.index("Synthetic multi-strategy book") - 400]
+    missing = sorted(_numbers(page) - _numbers(RESULTS.read_text(encoding="utf-8")))
+    assert not missing, f"landing page shows numbers absent from docs/RESULTS.md: {missing}"

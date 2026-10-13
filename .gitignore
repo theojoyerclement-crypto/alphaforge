@@ -23,6 +23,7 @@ data/*
 runs/*
 !runs/.gitkeep
 paper/
+site/
 *.parquet
 *.log
 

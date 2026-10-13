@@ -1,0 +1,160 @@
+{
+  "name": "binance_perps_pit",
+  "description": "Binance USDT-M perps, monthly top-12 by trailing liquidity from 29 candidates.",
+  "seed": 42,
+  "log_level": "INFO",
+  "data": {
+    "source": "parquet",
+    "exchange": "binance",
+    "market_type": "swap",
+    "symbols": [
+      "BTC/USDT:USDT",
+      "ETH/USDT:USDT",
+      "SOL/USDT:USDT",
+      "BNB/USDT:USDT",
+      "XRP/USDT:USDT",
+      "ADA/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "AVAX/USDT:USDT",
+      "LINK/USDT:USDT",
+      "DOT/USDT:USDT",
+      "LTC/USDT:USDT",
+      "ATOM/USDT:USDT",
+      "NEAR/USDT:USDT",
+      "FIL/USDT:USDT",
+      "APT/USDT:USDT",
+      "ARB/USDT:USDT",
+      "OP/USDT:USDT",
+      "SUI/USDT:USDT",
+      "INJ/USDT:USDT",
+      "AAVE/USDT:USDT",
+      "UNI/USDT:USDT",
+      "ETC/USDT:USDT",
+      "BCH/USDT:USDT",
+      "TRX/USDT:USDT",
+      "SAND/USDT:USDT",
+      "AXS/USDT:USDT",
+      "ICP/USDT:USDT",
+      "1000SHIB/USDT:USDT",
+      "FTM/USDT:USDT"
+    ],
+    "timeframe": "1d",
+    "start": "2021-01-01",
+    "end": "2026-10-12",
+    "storage_dir": "data/store",
+    "include_funding": true,
+    "use_cache": true,
+    "synthetic": {
+      "n_bars": 1500,
+      "start": "2020-01-01",
+      "annual_vol": 0.65,
+      "annual_drift": 0.05,
+      "factor_share": 0.55,
+      "trend_persistence": 0.97,
+      "trend_strength": 0.04,
+      "carry_strength": 0.4,
+      "reversal_strength": 0.04,
+      "tail_dof": 4.0,
+      "stagger_listings": true
+    },
+    "quality": {
+      "max_gap_bars": 5,
+      "stale_bars": 5,
+      "spike_mad": 15.0,
+      "min_funding_coverage": 0.95,
+      "delisting_bars": 3,
+      "on_fail": "warn"
+    },
+    "universe": {
+      "top_n": 12,
+      "rank_lookback": 30,
+      "min_history": 90,
+      "rebalance_every": 30
+    }
+  },
+  "cleaning": {
+    "max_ffill_bars": 3,
+    "outlier_mad_threshold": 20.0,
+    "repair_outliers": true,
+    "stale_bars": 5
+  },
+  "strategies": [
+    {
+      "name": "ts_momentum",
+      "id": null,
+      "params": {}
+    },
+    {
+      "name": "xs_momentum",
+      "id": null,
+      "params": {}
+    },
+    {
+      "name": "regime_switching",
+      "id": null,
+      "params": {}
+    },
+    {
+      "name": "funding_carry",
+      "id": null,
+      "params": {}
+    }
+  ],
+  "portfolio": {
+    "vol_halflife": 20,
+    "sleeve_target_vol": 0.15,
+    "allocation": "risk_parity",
+    "allocation_lookback": 120,
+    "allocation_min_history": 60,
+    "rebalance_every": 5,
+    "correlation_threshold": 0.8,
+    "target_vol": 0.2,
+    "max_gross_leverage": 2.0,
+    "max_net_leverage": 1.0,
+    "max_position": 0.3
+  },
+  "risk": {
+    "max_drawdown": 0.3,
+    "drawdown_soft_limit": 0.15,
+    "cooldown_bars": 20,
+    "drawdown_basis": "shadow"
+  },
+  "costs": {
+    "model": "sqrt_impact",
+    "fee_bps": 4.0,
+    "half_spread_bps": 1.5,
+    "impact_coefficient": 0.1,
+    "adv_lookback": 20,
+    "vol_halflife": 20
+  },
+  "backtest": {
+    "initial_capital": 1000000.0,
+    "execution_delay": 1,
+    "apply_funding": true,
+    "start": "2021-07-01"
+  },
+  "walk_forward": {
+    "enabled": false,
+    "train_bars": 500,
+    "test_bars": 120,
+    "expanding": true,
+    "embargo_bars": 5
+  },
+  "research": {
+    "horizons": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "n_quantiles": 3,
+    "fdr": 0.1,
+    "top_k": 5
+  },
+  "report": {
+    "output_dir": "runs",
+    "save": true,
+    "plots": true,
+    "html": true
+  }
+}
