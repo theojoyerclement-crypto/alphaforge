@@ -123,7 +123,7 @@ Two failure modes surfaced only on real data and are now handled in code:
   and hard drawdown limits, the v1 overlay kept the PIT book at 5–10% exposure for four years.
   The pre-registered fix (v2) and its outcome are in §6.
 
-Full tables and caveats are in the [README](../README.md#5-real-market-binance-usdt-m-perpetuals).
+Full tables and caveats are in [RESULTS.md](RESULTS.md#5-real-market-binance-usdt-m-perpetuals).
 
 ## 6. Pre-registered change: drawdown overlay v2 (2026-10-13)
 
@@ -206,7 +206,7 @@ Pre-listed comparisons: every portfolio Sharpe in the README; overlay v2 vs v1 a
 overlay (all four books); the fixed-universe and point-in-time Binance books vs BTC buy &
 hold; fixed vs point-in-time universe.
 
-**Outcome.** Tables are in the README ("How much of this is noise?").
+**Outcome.** Tables are in [RESULTS.md](RESULTS.md#how-much-of-this-is-noise).
 
 * The only Sharpe whose interval excludes zero is the synthetic book (1.37 [0.60, 2.12]).
   No real-data book is distinguishable from zero or from BTC. Intervals are about ±0.8 wide,

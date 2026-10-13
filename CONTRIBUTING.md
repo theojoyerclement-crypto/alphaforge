@@ -29,7 +29,8 @@ with `@register_feature`.
 ## Ground rules
 
 - Do not recalibrate `SyntheticConfig` defaults without updating `tests/test_alpha.py` and the
-  README results tables: the synthetic market is the test oracle.
-- Numbers quoted in the READMEs come from real runs of `configs/*.yaml`. If behaviour changes,
+  results tables in `docs/RESULTS.md`: the synthetic market is the test oracle.
+- Numbers in `docs/RESULTS.md` come from real runs of `configs/*.yaml` (the READMEs and figures may
+  only quote them; `tests/test_docs.py` enforces it). If behaviour changes,
   re-run them and update the tables, including unflattering ones.
 - Never commit API keys, `data/store/`, `runs/` or `paper/`.

@@ -9,7 +9,7 @@
 | **Frictions are on by default**: 1 bar of latency, fees, spread, square-root impact and perp funding. Turnover is measured on drifted weights. | Turning realism *off* takes an explicit override, and the cost-stress config shows what that hides. | `backtest/engine.py`, `configs/cost_stress.yaml` |
 | **One accounting function for backtest and live.** `mark_to_market` and the cost model are shared by `BacktestEngine` and `PaperBroker`. | Replaying history through the paper account reproduces backtest equity to 1e-10. | `live/`, `tests/test_live.py` |
 | **Learning strategies can only run under walk-forward.** | No in-sample ML result can be produced by accident. | `research/experiment.py` |
-| **A run is identified by its config.** The config is a strict pydantic schema, and the manifest records config, data and code hashes, a dirty-tree flag, the seed and package versions. | Any number in the README can be traced back to an exact input. | `config/schema.py`, `utils/reproducibility.py` |
+| **A run is identified by its config.** The config is a strict pydantic schema, and the manifest records config, data and code hashes, a dirty-tree flag, the seed and package versions. | Any published number (docs/RESULTS.md) can be traced back to an exact input. | `config/schema.py`, `utils/reproducibility.py` |
 | **Layered packages with an import-cycle guard.** | Each layer can be tested and replaced on its own. | `tests/test_imports.py`, [dependency order](#module-dependency-order) |
 
 ## Design principles
