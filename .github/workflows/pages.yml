@@ -1,0 +1,51 @@
+name: Example report
+
+# Publishes the HTML report of configs/multi_strategy.yaml (synthetic market, offline) to
+# GitHub Pages, so a reader can open a real run's output without installing anything.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e .
+      - name: Run the reference experiment
+        run: alphaforge run configs/multi_strategy.yaml
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          run_dir=$(ls -d runs/*_multi_strategy | tail -n 1)
+          cp "$run_dir/report.html" site/index.html
+          cp "$run_dir/manifest.json" "$run_dir/metrics.csv" site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
