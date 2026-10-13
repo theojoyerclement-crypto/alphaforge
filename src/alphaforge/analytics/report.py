@@ -60,6 +60,9 @@ th{background:#f0f2f5}
 img{width:100%;background:#fff;border:1px solid #e1e4e8;border-radius:6px;margin:6px 0}
 .note{font-size:12.5px;color:#5b6573;background:#fff;border-left:3px solid #1f4e79;
   padding:8px 12px}
+.source{font-size:13px;margin-top:6px}
+.banner{background:#fff4e5;border:1px solid #eb6834;border-left:6px solid #eb6834;
+  border-radius:6px;padding:10px 14px;margin:0 0 16px;font-weight:600;color:#1d2430}
 """
 
 
@@ -100,6 +103,41 @@ def format_drawdowns(dd: pd.DataFrame) -> pd.DataFrame:
         if col in dd:
             out[col] = ["n/a" if pd.isna(v) else f"{int(v):,}" for v in dd[col]]
     return out
+
+
+SYNTHETIC_BANNER = "Synthetic market with planted edges: integration test, not a performance claim"
+
+
+def describe_data_source(config: Mapping[str, Any] | None) -> tuple[str, bool]:
+    """Human-readable data source of a run, and whether it is synthetic.
+
+    Read from the run's resolved config, so every report says where its numbers come from:
+    a synthetic market with planted edges, or exchange data with its universe rule.
+    """
+    data = dict((config or {}).get("data") or {})
+    if not data:
+        return "Data source: not recorded", False
+    symbols = list(data.get("symbols") or [])
+    timeframe = data.get("timeframe", "?")
+    if data.get("source", "synthetic") == "synthetic":
+        text = (
+            f"Data source: synthetic market (seeded, planted edges), {len(symbols)} assets, "
+            f"{timeframe} bars"
+        )
+        return text, True
+    market = {"swap": "perpetual futures", "spot": "spot"}.get(str(data.get("market_type")), "")
+    venue = f"{str(data.get('exchange', '?')).title()} {market}".strip()
+    universe = dict(data.get("universe") or {})
+    if universe.get("top_n"):
+        rule = (
+            f"point-in-time universe: top {universe['top_n']} of {len(symbols)} candidates by "
+            f"{universe.get('rank_lookback')}-bar dollar volume, reviewed every "
+            f"{universe.get('rebalance_every')} bars, after {universe.get('min_history')} bars "
+            "of trading"
+        )
+    else:
+        rule = f"fixed universe of {len(symbols)} symbols"
+    return f"Data source: {venue} market data, {timeframe} bars, {rule}", False
 
 
 def _section(heading: str, body: str) -> str:
@@ -151,8 +189,12 @@ def generate_report(
         extra.to_csv(out / f"{name}.csv")
 
     pm = portfolio.metrics()
+    source_line, is_synthetic = describe_data_source(config)
     summary = [
         f"# {title}",
+        "",
+        *([f"> **{SYNTHETIC_BANNER}**", ""] if is_synthetic else []),
+        source_line + ".",
         "",
         f"Generated {datetime.now(UTC):%Y-%m-%d %H:%M UTC}. "
         f"Period {portfolio.returns.index[0].date()} -> {portfolio.returns.index[-1].date()} "
@@ -217,8 +259,11 @@ def generate_report(
     for metric in formatted.index:
         formatted.loc[metric] = [_fmt(str(metric), v) for v in table.loc[metric]]
     period = f"{portfolio.returns.index[0].date()} → {portfolio.returns.index[-1].date()}"
-    sections = [
+    source, synthetic = describe_data_source(config)
+    sections = [f'<div class="banner">{SYNTHETIC_BANNER}</div>'] if synthetic else []
+    sections += [
         f"<h1>{title}</h1>",
+        f'<div class="source">{source}</div>',
         f'<div class="meta">{period} · {pm.n_periods} bars · '
         "net of fees, spread, impact and funding</div>",
         f'<div class="kpis">{kpi_html}</div>',
