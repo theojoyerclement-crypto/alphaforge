@@ -87,3 +87,90 @@ Avec la boucle compilée, la préparation pandas (`cost_inputs` : volatilité EW
 glissante) représente 58 % d'un run à 200 actifs. Pour des balayages (capacité, coûts), je
 mettrais ces entrées de risque en cache entre les runs qui partagent les mêmes données, plutôt
 que de réécrire la boucle en Rust.
+
+---
+
+## Module 2 : exécution sur testnet (CcxtTestnetBroker)
+
+### Ce que fait le module, en 5 phrases
+
+1. Le module fait passer les décisions du paper trader (les mêmes stratégies, la même
+   construction de portefeuille et le même overlay que le backtest) de fills simulés à de vrais
+   ordres sur le testnet d'un exchange.
+2. Il ne change rien en amont : il implémente la même interface `Broker` que le broker simulé,
+   avec `sync` pour lire le compte et `execute` pour envoyer les ordres.
+3. Chaque ordre porte un identifiant client calculé à partir de (expérience, barre, symbole,
+   sens) ; avant d'envoyer, et après toute erreur réseau, le broker cherche cet identifiant sur
+   l'exchange, donc un ordre n'est jamais envoyé deux fois.
+4. À chaque barre, il compare les positions réelles de l'exchange aux positions qu'il attend,
+   et un kill switch arrête tout en cas de perte maximale, de désynchronisation ou de données
+   périmées.
+5. Toutes ses décisions sont écrites dans un journal JSON (une ligne par événement), et l'arrêt
+   du kill switch survit à un redémarrage jusqu'à une réinitialisation manuelle.
+
+**Analogie.** C'est un pilote de ligne avec une checklist. Avant chaque manœuvre, il vérifie
+les instruments (données récentes, carburant suffisant, position de l'avion conforme au plan).
+S'il n'a pas entendu la réponse de la tour, il ne répète pas son ordre à l'aveugle : il demande
+d'abord si le premier a été reçu. Et la boîte noire enregistre tout.
+
+### Les 3 fichiers et fonctions clés
+
+| Fichier | Fonction | À retenir |
+|---|---|---|
+| `src/alphaforge/live/ccxt_broker.py` | `CcxtTestnetBroker.sync`, `execute`, `_place`, `_reconcile`, `client_order_id` | `_place` : recherche par identifiant client avant l'envoi, puis après chaque erreur réseau ; `DuplicateOrderId` traité comme « déjà placé ». `_reconcile` met à jour les positions attendues à partir des quantités réellement exécutées et les compare à l'exchange. |
+| `src/alphaforge/live/kill_switch.py` | `KillSwitch.check_loss`, `check_positions`, `check_data`, `reset` | Trois déclencheurs indépendants. L'état « halted » est persisté avant de lever l'exception, et seul un humain le lève. |
+| `src/alphaforge/live/retry.py` + `journal.py` | `call_with_retries`, `EventJournal.log` | Retries avec backoff exponentiel plafonné, uniquement sur les erreurs réseau. Journal en JSON lines, lisible après redémarrage. |
+
+### Choix de conception et alternatives écartées
+
+- **Identifiant client déterministe plutôt qu'aléatoire.** Un UUID aléatoire change à chaque
+  tentative : après un crash, impossible de savoir si l'ordre était parti. Le hash
+  (expérience, barre, symbole, sens) redonne le même identifiant, et la quantité est exclue
+  exprès pour qu'un recalcul légèrement différent tombe sur le même ordre.
+- **Chercher avant de réessayer, plutôt que réessayer directement.** Un timeout ne dit pas si
+  l'exchange a reçu l'ordre. Réessayer à l'aveugle peut doubler la position ; on vérifie
+  d'abord.
+- **Réessayer seulement les erreurs réseau.** Un ordre refusé (marge insuffisante, quantité
+  invalide) échouera à l'identique ; le réessayer masquerait le problème. Il est journalisé et
+  le trading continue sur les autres symboles.
+- **Positions attendues issues des fills, pas copiées de l'exchange.** Si on recopiait les
+  positions de l'exchange à chaque fois, la réconciliation ne détecterait jamais rien (trade
+  manuel, fill perdu).
+- **Testnet uniquement, clés dans l'environnement.** Le broker refuse un exchange hors sandbox ;
+  aucune voie vers la production dans le dépôt, aucune clé dans le code.
+- **Exchange simulé en mémoire pour les tests**, plutôt que des appels au vrai testnet en CI :
+  tests rapides, déterministes, capables de reproduire les pannes (timeout après acceptation,
+  latence de réplication des positions), sans réseau ni clé.
+
+### 5 questions d'entretien probables
+
+**1. Comment garantissez-vous qu'un ordre n'est pas envoyé deux fois ?**
+Par un identifiant client déterministe : hash de (expérience, barre, symbole, sens). Avant
+d'envoyer, je cherche cet identifiant sur l'exchange. Si une requête finit en timeout, je
+cherche de nouveau avant de réessayer, car l'exchange a pu l'accepter. Un `DuplicateOrderId`
+est traité comme « déjà placé ». Les tests couvrent le timeout après acceptation et la reprise
+après un crash.
+
+**2. Que se passe-t-il si le programme plante entre l'envoi de l'ordre et la sauvegarde de
+l'état ?**
+Au redémarrage, la même barre est rejouée et produit les mêmes identifiants client. Les ordres
+déjà passés sont retrouvés et non renvoyés. Les positions attendues sont recalculées à partir
+des quantités exécutées trouvées, puis réconciliées avec l'exchange à la barre suivante.
+
+**3. Pourquoi un kill switch qui ne se réarme pas tout seul ?**
+Parce que la condition qui l'a déclenché (bug, trade manuel, marché anormal) n'a pas disparu
+juste parce que le processus a redémarré. Un humain doit lire le journal, comprendre, puis
+réinitialiser. L'état est persisté avant de lever l'exception : un test a d'ailleurs détecté
+que ce n'était pas le cas dans la première version.
+
+**4. Comment testez-vous du code d'exécution sans toucher à un exchange ?**
+Avec un exchange simulé en mémoire qui reproduit l'interface CCXT : précision des quantités,
+notional minimum, identifiants uniques, marge et PnL. Il sait injecter des pannes précises
+(erreur réseau avant ou après acceptation, rejet, latence des positions). Les classes
+d'erreurs sont injectées, donc la CI n'installe même pas ccxt.
+
+**5. Quelles sont les limites de ce broker ?**
+Ordres au marché uniquement, sans algorithme d'exécution ; le testnet n'a ni la liquidité ni
+les prix du vrai marché, donc les fills ne disent rien des coûts réels ; le book fantôme de
+l'overlay est simulé avec le modèle de coûts du backtest. Et aucune session réelle sur le
+testnet n'a encore été faite : elle demande des clés et n'est pas dans la CI.
