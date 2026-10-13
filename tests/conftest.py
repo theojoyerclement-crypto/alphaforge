@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
+from hypothesis import settings
 
 from alphaforge.config.schema import DataConfig, SyntheticConfig
 from alphaforge.data.loader import load_market_data
 from alphaforge.data.market_data import MarketData
 
 SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOGE", "AVAX"]
+
+# Property tests explore new random cases locally, but CI must be reproducible: the same commit
+# gives the same verdict. GitHub Actions sets CI=true.
+settings.register_profile("ci", derandomize=True, print_blob=True)
+if os.environ.get("CI"):
+    settings.load_profile("ci")
 
 
 @pytest.fixture(scope="session")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from alphaforge.analytics.metrics import annualized_volatility
@@ -55,6 +55,7 @@ def test_risk_parity_equalises_risk_contributions() -> None:
     seed=st.integers(0, 2**32 - 1),
     collinearity=st.floats(-0.999, 0.999),
 )
+@example(n=2, seed=55, collinearity=-0.998046875)  # found by CI: cond(cov) ~ 7e7
 def test_risk_parity_property(n: int, seed: int, collinearity: float) -> None:
     """Any sample covariance, incl. (anti-)collinear sleeves: positive, sums to 1, equal RC."""
     rng = np.random.default_rng(seed)
@@ -64,7 +65,13 @@ def test_risk_parity_property(n: int, seed: int, collinearity: float) -> None:
     w = risk_parity_weights(cov)
     rc = w * (cov @ w)
     assert np.all(w > 0) and w.sum() == pytest.approx(1.0, abs=1e-12)
-    assert np.abs(rc / rc.sum() - 1.0 / n).max() < 1e-9
+    # Evaluating RC loses ~cond(cov) * eps to cancellation on near-hedged sleeves (cond ~1e8 at
+    # collinearity -0.998), so the tolerance scales with conditioning rather than being fixed.
+    tol = 1e-9 + 100 * np.linalg.cond(cov) * np.finfo(float).eps
+    assert np.abs(rc / rc.sum() - 1.0 / n).max() < tol
+    if n == 2:  # exact oracle: two-asset ERC is inverse volatility, whatever the correlation
+        inv_vol = 1.0 / np.sqrt(np.diag(cov))
+        np.testing.assert_allclose(w, inv_vol / inv_vol.sum(), atol=1e-12)
 
 
 def test_risk_parity_with_negatively_correlated_sleeves() -> None:
