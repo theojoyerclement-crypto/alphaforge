@@ -148,3 +148,54 @@ def test_stale_data_and_max_loss_stop_trading(tmp_path: Path) -> None:
     ex.marks["BTC/USDT:USDT"] = 45_000.0  # -10% on a fully invested book
     with pytest.raises(KillSwitchTriggeredError, match="max_loss"):
         broker.sync(_market({**PRICES, "BTC/USDT:USDT": 45_000.0}))
+
+
+def test_paper_trader_drives_the_testnet_broker_end_to_end(tmp_path: Path) -> None:
+    """The backtest's own decision code sends real (simulated-venue) orders, once per bar."""
+    from alphaforge.config import ExperimentConfig
+    from alphaforge.data.loader import load_market_data
+    from alphaforge.live import PaperTrader
+
+    config = ExperimentConfig.model_validate(
+        {
+            "name": "testnet",
+            "data": {"symbols": ["A", "B", "C"], "synthetic": {"n_bars": 200}},
+            "strategies": [{"name": "ts_momentum"}, {"name": "funding_carry"}],
+            "portfolio": {"allocation_min_history": 20, "allocation_lookback": 40},
+            "report": {"save": False},
+        }
+    )
+    data, _ = load_market_data(config.data, config.cleaning, config.seed)
+    marks = {s: float(p) for s, p in data.close.iloc[-1].items()}
+    ex = FakeExchange(marks, cash=100_000.0, min_cost=1.0)
+    broker = CcxtTestnetBroker(
+        ex, config.name, "1d", tmp_path / "broker_state.json", errors=ERRORS,
+        sleep=lambda _: None, now=lambda: data.index[-1] + pd.Timedelta("1D2h"),
+    )  # fmt: skip
+    trader = PaperTrader(config, broker=broker)
+    report = trader.step(data)
+    assert not report.skipped and len(report.fills) > 0
+    assert trader.shadow is not None, "overlay v2 keeps its simulated shadow book"
+    np.testing.assert_allclose(
+        broker.weights.reindex(report.target.index).fillna(0.0), report.target, atol=0.01
+    )
+    sent = ex.create_calls
+    assert trader.step(data).skipped and ex.create_calls == sent  # same bar: nothing to do
+    trader.save_state(tmp_path / "state.json")
+    resumed = PaperTrader.from_state(config, tmp_path / "state.json", broker=broker)
+    assert resumed.broker is broker
+
+
+def test_cli_testnet_needs_keys_before_touching_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from alphaforge.cli import main
+
+    monkeypatch.delenv("ALPHAFORGE_TESTNET_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHAFORGE_TESTNET_API_SECRET", raising=False)
+    config = Path(__file__).resolve().parents[1] / "configs" / "binance_perps.yaml"
+    code = main([
+        "paper", str(config), "--broker", "ccxt-testnet", "--state-dir", str(tmp_path),
+        "--set", "data.source=parquet", "--set", f"data.storage_dir={tmp_path / 'empty'}",
+    ])  # fmt: skip
+    assert code == 2 and "ALPHAFORGE_TESTNET_API_KEY" in capsys.readouterr().err

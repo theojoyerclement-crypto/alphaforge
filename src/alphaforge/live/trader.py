@@ -142,12 +142,17 @@ class PaperTrader:
     # -- persistence -------------------------------------------------------------------
 
     def save_state(self, path: str | Path) -> None:
-        """Write the account and risk-overlay state so the next run resumes from it."""
-        if not isinstance(self.broker, PaperBroker):
-            raise TypeError("Only PaperBroker state is persisted locally")
+        """Write the account and risk-overlay state so the next run resumes from it.
+
+        A simulated account (:class:`PaperBroker`) is saved here. A venue broker keeps its own
+        state (expected positions, kill switch, journal); only the shadow book and the
+        drawdown controller, which live in the trader, are saved for it.
+        """
+        account = self.broker.state.to_dict() if isinstance(self.broker, PaperBroker) else None
         payload: dict[str, Any] = {
             "experiment": self.config.name,
-            "account": self.broker.state.to_dict(),
+            "broker": type(self.broker).__name__,
+            "account": account,
             "shadow_account": None if self.shadow is None else self.shadow.state.to_dict(),
             "drawdown_controller": self.controller.state_dict() if self.controller else None,
         }
@@ -156,9 +161,16 @@ class PaperTrader:
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     @classmethod
-    def from_state(cls, config: ExperimentConfig, path: str | Path) -> PaperTrader:
-        """Resume a paper session; a missing file starts a fresh account."""
-        trader = cls(config)
+    def from_state(
+        cls, config: ExperimentConfig, path: str | Path, broker: Broker | None = None
+    ) -> PaperTrader:
+        """Resume a session; a missing file starts fresh.
+
+        Args:
+            broker: A venue broker (it restores its own state). ``None`` resumes the
+                simulated :class:`PaperBroker` account saved in ``path``.
+        """
+        trader = cls(config, broker)
         source = Path(path)
         if not source.exists():
             return trader
@@ -168,7 +180,8 @@ class PaperTrader:
                 f"{source} belongs to experiment {payload.get('experiment')!r}, "
                 f"not {config.name!r}; use another --state-dir"
             )
-        trader.broker = PaperBroker(trader.engine, AccountState.from_dict(payload["account"]))
+        if broker is None and payload.get("account") is not None:
+            trader.broker = PaperBroker(trader.engine, AccountState.from_dict(payload["account"]))
         if trader.shadow is not None:
             shadow_state = payload.get("shadow_account")
             if shadow_state is None:
