@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from alphaforge.analytics.metrics import annualized_volatility
 from alphaforge.config.schema import PortfolioConfig
@@ -44,7 +46,38 @@ def test_risk_parity_equalises_risk_contributions() -> None:
     w = risk_parity_weights(cov)
     rc = w * (cov @ w)
     assert w.sum() == pytest.approx(1.0)
-    assert rc.std() / rc.mean() < 1e-6
+    assert rc.std() / rc.mean() < 1e-10
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    n=st.integers(2, 8),
+    seed=st.integers(0, 2**32 - 1),
+    collinearity=st.floats(-0.999, 0.999),
+)
+def test_risk_parity_property(n: int, seed: int, collinearity: float) -> None:
+    """Any sample covariance, incl. (anti-)collinear sleeves: positive, sums to 1, equal RC."""
+    rng = np.random.default_rng(seed)
+    base = rng.normal(size=(150, n)) * rng.uniform(1e-3, 0.1, n)
+    base[:, 1] = collinearity * base[:, 0] + (1 - abs(collinearity)) * base[:, 1]
+    cov = np.cov(base, rowvar=False)
+    w = risk_parity_weights(cov)
+    rc = w * (cov @ w)
+    assert np.all(w > 0) and w.sum() == pytest.approx(1.0, abs=1e-12)
+    assert np.abs(rc / rc.sum() - 1.0 / n).max() < 1e-9
+
+
+def test_risk_parity_with_negatively_correlated_sleeves() -> None:
+    """Regression: the former multiplicative fixed point returned ~[0.92, 0, 0.08] here, i.e. one
+    sleeve carrying 97% of the risk, because a negative risk contribution blew up its update."""
+    rng = np.random.default_rng(1)
+    z = rng.normal(size=(120, 3))
+    z[:, 1] = -0.9 * z[:, 0] + np.sqrt(1 - 0.81) * z[:, 1]
+    cov = np.cov(z * [0.01, 0.02, 0.015], rowvar=False)
+    w = risk_parity_weights(cov)
+    rc = w * (cov @ w)
+    assert np.all(w > 0.05)
+    np.testing.assert_allclose(rc / rc.sum(), 1 / 3, atol=1e-10)
 
 
 def test_risk_parity_ignores_dead_sleeves() -> None:

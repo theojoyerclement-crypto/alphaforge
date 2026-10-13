@@ -33,13 +33,15 @@
 
 ```
 DataConfig ──> source (synthetic | ccxt | parquet)
-            ──> clean_ohlcv (per symbol, CleaningReport)
+            ──> clean_ohlcv (per symbol, CleaningReport; dead feeds dropped)
             ──> aggregate_funding_to_bars
             ──> MarketData(open, high, low, close, volume, funding, extras={basis})
+            ──> assess_quality ──> Dataset(data, cleaning, quality, sources)   (load_dataset)
 
 MarketData ──> Strategy.generate_signals ──> {label: signals}          (fit() on train only)
            ──> PortfolioConstructor.build
-                 size_sleeve:  signal / asset_vol  ──> sleeve vol target (EWMA covariance)
+                 tradable:     universe_mask (listing age, trailing-liquidity top N; causal)
+                 size_sleeve:  signal|tradable / asset_vol ──> sleeve vol target (EWMA cov)
                  StrategyAllocator: ERC on trailing sleeve returns, correlation haircut
                  portfolio vol target ──> position / gross / net limits
            ──> BacktestEngine.run (event loop)

@@ -7,6 +7,13 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 
+class DataSourceError(RuntimeError):
+    """A data source could not deliver (network down, unknown symbol, venue error).
+
+    The message says what failed and what to do; the CLI prints it without a traceback.
+    """
+
+
 class DataSource(ABC):
     """A provider of raw per-symbol OHLCV bars and (optionally) funding events.
 

@@ -10,6 +10,7 @@ Design rationale: `docs/ARCHITECTURE.md`; bias controls: `docs/METHODOLOGY.md`. 
 - Alpha leaderboard: `PYTHONPATH=src python -m alphaforge research configs/multi_strategy.yaml`
 - Paper parity demo: `PYTHONPATH=src python -m alphaforge paper configs/multi_strategy.yaml --replay 10`
 - Everything a reviewer runs: `python scripts/smoke_test.py` (~4 min)
+- Data audit: `PYTHONPATH=src python -m alphaforge validate configs/binance_perps_pit.yaml --set data.source=parquet`
 - Static checks (same as CI): `ruff check src tests examples scripts`, `ruff format --check src tests examples scripts`, `mypy`
 - Windows: use `python`, not `python3` (the latter is the Microsoft Store stub and prints nothing).
 
@@ -23,7 +24,10 @@ Design rationale: `docs/ARCHITECTURE.md`; bias controls: `docs/METHODOLOGY.md`. 
 - Engine identity `net = gross + funding − costs` is asserted in tests.
 - `live/` (paper trading) must reuse the backtest's code: `mark_to_market`, `cost_model`, `cost_inputs`,
   `PortfolioConstructor`. `tests/test_live.py` asserts replayed paper NAV == `BacktestEngine` equity.
-- Real-data README tables use `configs/binance_perps.yaml` with `--set data.end=2026-10-12`; data lives in `data/store/` (not committed).
+- Real-data README tables use `configs/binance_perps.yaml` and `configs/binance_perps_pit.yaml` with `--set data.end=2026-10-12`; data lives in `data/store/` (not committed).
+- Datetime resolution varies in pandas 3 (us for synthetic, ms for Binance): never compare raw `asi8`/`.value` across indexes; convert with `.as_unit("ns")` or use Timedelta arithmetic.
+- `load_market_data` keeps its `(data, cleaning)` API; `load_dataset` adds the quality audit and file provenance used by run manifests.
+- Universe membership (`data.universe`) gates sizing in `PortfolioConstructor.tradable`; strategies still see every candidate.
 - `backtest/walk_forward.py` imports strategies only under `TYPE_CHECKING` (avoids an import cycle; `tests/test_imports.py` guards it).
 
 ## Conventions

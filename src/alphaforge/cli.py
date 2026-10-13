@@ -8,6 +8,7 @@ Examples::
     alphaforge fetch --exchange binance --symbols BTC/USDT:USDT ETH/USDT:USDT --timeframe 1d
     alphaforge paper configs/multi_strategy.yaml --replay 20
     alphaforge paper configs/binance_perps.yaml
+    alphaforge validate configs/binance_perps.yaml
     alphaforge list
 """
 
@@ -53,7 +54,7 @@ def _cmd_research(args: argparse.Namespace) -> int:
 
 def _cmd_fetch(args: argparse.Namespace) -> int:
     from alphaforge.config.schema import DataConfig
-    from alphaforge.data.loader import load_market_data
+    from alphaforge.data.loader import load_dataset
 
     config = DataConfig(
         source="ccxt",
@@ -66,8 +67,36 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
         storage_dir=args.store,
         use_cache=False,
     )
-    data, _ = load_market_data(config)
+    dataset = load_dataset(config)
+    data = dataset.data
     print(f"Stored {len(data.symbols)} symbols x {data.n_bars} bars in {args.store}")
+    print(dataset.quality.summary())
+    return 0
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    from alphaforge.config.loader import load_config
+    from alphaforge.data.loader import load_dataset
+    from alphaforge.data.universe import universe_mask
+
+    config = load_config(args.config, args.set)
+    data_cfg = config.data.model_copy(
+        update={"quality": config.data.quality.model_copy(update={"on_fail": "warn"})}
+    )
+    dataset = load_dataset(data_cfg, config.cleaning, config.seed)
+    table = dataset.quality.table
+    with pd.option_context("display.width", 200, "display.max_columns", None):
+        print(table.drop(columns=["first_bar", "last_bar"], errors="ignore"))
+    members = universe_mask(dataset.data, config.data.universe).sum(axis=1)
+    print(
+        f"\nUniverse size per bar: min {members.min()}, median {members.median():.0f}, "
+        f"max {members.max()}"
+    )
+    print(dataset.quality.summary())
+    if not dataset.quality.passed:
+        print("FAILED: error-level flags above would stop a run with data.quality.on_fail: error")
+        return 1
+    print("OK: no error-level data-quality flags")
     return 0
 
 
@@ -220,6 +249,11 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--state-dir", default="paper", help="Where paper account state is kept")
     pp.set_defaults(func=_cmd_paper)
 
+    val = sub.add_parser("validate", help="Audit a config's data: quality flags and universe size")
+    val.add_argument("config", help="Path to a YAML/JSON experiment config")
+    val.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    val.set_defaults(func=_cmd_validate)
+
     lst = sub.add_parser("list", help="List registered strategies, features and alphas")
     lst.set_defaults(func=_cmd_list)
     return parser
@@ -227,13 +261,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     from alphaforge.config.loader import ConfigError
+    from alphaforge.data.quality import DataQualityError
+    from alphaforge.data.sources.base import DataSourceError
     from alphaforge.research.experiment import ConfigurationError
 
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
-    except (ConfigError, ConfigurationError, FileNotFoundError) as exc:
-        # User-facing mistakes (bad config, missing data): a message, not a traceback.
+    except (
+        ConfigError,
+        ConfigurationError,
+        DataQualityError,
+        DataSourceError,
+        FileNotFoundError,
+    ) as exc:
+        # User-facing problems (bad config, missing or bad data, venue down): no traceback.
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

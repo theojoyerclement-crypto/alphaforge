@@ -53,3 +53,12 @@ def test_rejects_bad_input() -> None:
         list(PurgedKFold(3).split(t0[::-1], t1[::-1]))
     with pytest.raises(ValueError):
         PurgedKFold(1)
+
+
+def test_purging_is_unit_safe_with_mixed_datetime_resolutions() -> None:
+    """pandas 3 keeps ms/us/ns resolutions: t0 from a us index and t1 from ms data must still
+    be compared in the same unit, or purging silently stops working."""
+    t0, t1 = _events()
+    reference = [(tr.tolist(), te.tolist()) for tr, te in PurgedKFold(5, 0.02).split(t0, t1)]
+    mixed = PurgedKFold(5, 0.02).split(t0.as_unit("us"), t1.dt.as_unit("ms"))
+    assert [(tr.tolist(), te.tolist()) for tr, te in mixed] == reference

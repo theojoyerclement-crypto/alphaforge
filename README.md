@@ -8,7 +8,7 @@ single typed configuration file and is reproducible down to the commit, seed and
 
 🇫🇷 [Version française](README.fr.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Methodology](docs/METHODOLOGY.md) · 🤝 [Contributing](CONTRIBUTING.md)
 
-![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-161%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
+[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-181%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
 
 ---
 
@@ -83,7 +83,7 @@ reversal has already happened. This is the single most common way backtests lie.
 
 | | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/yr |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portfolio (risk parity, 20% vol target)** | **9.5%** | 15.8% | **0.65** | 0.95 | −27.2% | 119× |
+| **Portfolio (risk parity, 20% vol target)** | **30.3%** | 21.0% | **1.37** | 2.08 | −18.1% | 168× |
 | Funding carry | 36.3% | 16.0% | 2.02 | 3.10 | −15.2% | 51× |
 | Cross-sectional momentum | 5.8% | 15.1% | 0.45 | 0.63 | −24.7% | 76× |
 | Time-series momentum | 0.7% | 15.3% | 0.12 | 0.17 | −20.2% | 49× |
@@ -102,6 +102,18 @@ reversal has already happened. This is the single most common way backtests lie.
 These numbers are reported as they came out, without tuning: the ML sleeves do **not** beat a
 simple carry rule on this data, and the framework says so.
 
+> **Correction (Phase A audit).** The portfolio rows of tables 3 and 5 were first published with
+> a risk-parity solver that **silently diverged** when sleeves were negatively correlated. It
+> returned allocations such as 100% in one sleeve instead of equal risk contributions, and it
+> put allocations more than 25 points away from ERC on 18% of `multi_strategy` bars and 1% of
+> `binance_perps` bars. The solver is now a
+> damped Newton method on the convex ERC formulation, with risk contributions equal to 1e-12
+> and a regression test on the failing case. Corrected portfolio rows: synthetic Sharpe
+> 0.65 → **1.37**, because a real ERC diversifies the carry sleeve better. Binance Sharpe
+> 0.42 → **0.35**, because the misallocated bars happened to be lucky, concentrated bets.
+> Sleeve rows, alpha research, cost stress and walk-forward ML do not use the solver and are
+> unchanged (walk-forward equity moves by < 1e-10).
+
 ### 5. Real market: Binance USDT-M perpetuals
 
 `configs/binance_perps.yaml` is **unchanged since the initial commit**: it was not tuned on this
@@ -111,7 +123,7 @@ default frictions (4 bps fee, 1.5 bps half-spread, square-root impact, 1 bar of 
 
 | Net of all costs and funding | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/yr |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portfolio (risk parity, 20% vol target)** | **6.1%** | 18.0% | **0.42** | 0.60 | −27.4% | 121× |
+| **Portfolio (risk parity, 20% vol target)** | **4.9%** | 18.0% | **0.35** | 0.50 | −27.7% | 119× |
 | Time-series momentum | 5.5% | 15.5% | 0.43 | 0.61 | −22.9% | 38× |
 | Funding carry | 5.1% | 16.7% | 0.38 | 0.53 | −28.8% | 60× |
 | Cross-sectional momentum | 2.1% | 17.0% | 0.21 | 0.29 | −30.7% | 91× |
@@ -119,27 +131,54 @@ default frictions (4 bps fee, 1.5 bps half-spread, square-root impact, 1 bar of 
 | *Benchmark: BTC perp buy & hold* | *10.0%* | *52.2%* | *0.44* | | *−78.0%* | |
 | *Benchmark: equal-weight long basket* | *−1.0%* | *68.4%* | *0.33* | | *−79.3%* | |
 
-Portfolio by calendar year: 2021 H2 +10.5% · 2022 −17.4% · 2023 +5.0% · 2024 +24.6% ·
-2025 +22.0% · 2026 YTD −6.3%. Annualised PnL attribution: price +12.9%, funding +2.0%,
-**costs −7.4%**. The book is roughly market-neutral (average net exposure −0.01, gross 0.93,
-daily correlation to BTC −0.11).
+Portfolio by calendar year: 2021 H2 +10.5% · 2022 −17.4% · 2023 +3.3% · 2024 +23.8% ·
+2025 +22.0% · 2026 YTD −9.7%. Annualised PnL attribution: price +11.6%, funding +2.0%,
+**costs −7.3%**. The book is roughly market-neutral (average net exposure −0.01, gross 0.92,
+daily correlation to BTC −0.12).
+
+**5b. The same book on a point-in-time universe** (`configs/binance_perps_pit.yaml`). The
+12-coin list above is hindsight: those coins are large today *because* they survived and went
+up. This variant has the same strategies, frictions and dates. Each month it trades the 12
+most liquid perps of that time, by trailing 30-day dollar volume after 90 days of trading.
+The 29 candidates include coins listed later (APT, ARB, OP, SUI...) and **FTM, delisted in
+January 2025**. Binance still serves flat, zero-volume FTM candles after the delisting. The
+cleaner drops them as a dead feed, so FTM leaves the universe instead of becoming a
+"riskless" asset with zero volatility.
+
+| Net of all costs and funding | CAGR | Vol | Sharpe | Max DD | Turnover/yr |
+|---|---:|---:|---:|---:|---:|
+| **Portfolio (default drawdown overlay)** | **−4.5%** | 6.9% | **−0.63** | −29.5% | 25× |
+| Portfolio, drawdown overlay off | −5.1% | 20.6% | −0.15 | | |
+| Time-series momentum | 5.0% | 15.3% | 0.39 | −20.4% | 35× |
+| Cross-sectional momentum | 1.1% | 15.2% | 0.15 | −21.8% | 65× |
+| Funding carry | −5.7% | 15.0% | **−0.32** | −41.3% | 47× |
+| Regime switching | −11.5% | 15.7% | −0.70 | −50.4% | 102× |
 
 What this does and does not show:
 
-* **No better risk-adjusted return than holding BTC** (Sharpe 0.42 vs 0.44). The real differences
-  are a drawdown of −27% instead of −78% and close to zero beta.
-* **The synthetic edges were optimistic.** Funding carry drops from Sharpe 2.0 on the synthetic
-  market to 0.38 on real data. Regime switching loses money on both.
-* **Costs take half of the gross edge.** The framework charges them, which is the point.
+* **Selection hindsight was worth about 0.7 of Sharpe.** With the overlay off, the portfolio
+  goes from +0.53 on the hindsight universe to −0.15 point-in-time. Funding carry turns from
+  +0.38 to −0.32. Only time-series momentum survives (0.43 → 0.39). The headline number is
+  the point-in-time one.
+* **No better risk-adjusted return than holding BTC**, even on the flattering universe (Sharpe
+  0.35 vs 0.44). The real differences are a drawdown of −28% instead of −78% and close to zero
+  beta.
+* **The default drawdown overlay has a known flaw.** Between the soft (15%) and hard (30%)
+  limits, exposure shrinks linearly. In 5b it fell to 5–10% for four years: too small to ever
+  recover the high-water mark, never deep enough to hit the hard stop that resets it. It also
+  costs Sharpe on the fixed universe (0.53 → 0.35). Fixing it is the next item on the roadmap.
+  Changing the default after seeing these numbers would be tuning on the test set.
+* **Costs take more than half of the gross price edge.** The framework charges them, which is
+  the point.
 * On real data the alpha leaderboard keeps funding-based signals (`funding_reversal_90`
   t = 3.4, `funding_carry_21` t = 2.0, both BH-significant) and rejects 60-day momentum (t = 0.04).
   `low_vol_60` has the largest rank IC (t = 8) but a **negative** long-short Sharpe. The IC
   weights every day equally, while dollar PnL is dominated by the few high-dispersion days when
   volatile alts rally. A rank IC is not a PnL.
-* **Caveats.** The universe consists of today's survivors, chosen with hindsight, which is
-  survivorship bias in our favour. It covers one venue, 12 assets and a single path, with no
-  capacity analysis. Treat this as a sanity check of the pipeline on real data, not as a track
-  record.
+* **Caveats.** Coins that Binance no longer serves at all (LUNA, MATIC...) cannot be
+  candidates, so survivorship is reduced, not removed. The test covers one venue and a single
+  path, with no capacity analysis. Treat it as a pipeline sanity check on real data, not as a
+  track record.
 
 ## Quickstart
 
@@ -166,7 +205,7 @@ paper-trading replay. It prints the path of the HTML report (`runs/<timestamp>_m
 and exits non-zero on any failure. Use `--quick` to skip the tests. The individual commands:
 
 ```bash
-pytest                                                # 161 tests, ~2 min
+pytest                                                # 181 tests, ~2 min
 alphaforge list                                       # strategies, features, alphas
 alphaforge research configs/multi_strategy.yaml       # alpha leaderboard
 alphaforge run configs/multi_strategy.yaml            # backtest + HTML report in runs/
@@ -190,6 +229,14 @@ alphaforge fetch --exchange binance --timeframe 1d --start 2021-01-01 --symbols 
 alphaforge run configs/binance_perps.yaml --set data.end=2026-10-12      # the table above
 alphaforge research configs/binance_perps.yaml --set data.end=2026-10-12
 alphaforge run configs/binance_perps.yaml                                # up to the last closed bar
+
+# 5b, point-in-time universe: 17 more candidates, then the PIT run
+alphaforge fetch --exchange binance --timeframe 1d --start 2021-01-01 --end 2026-10-12 --symbols \
+  NEAR/USDT:USDT FIL/USDT:USDT APT/USDT:USDT ARB/USDT:USDT OP/USDT:USDT SUI/USDT:USDT \
+  INJ/USDT:USDT AAVE/USDT:USDT UNI/USDT:USDT ETC/USDT:USDT BCH/USDT:USDT TRX/USDT:USDT \
+  SAND/USDT:USDT AXS/USDT:USDT ICP/USDT:USDT 1000SHIB/USDT:USDT FTM/USDT:USDT
+alphaforge validate configs/binance_perps_pit.yaml --set data.end=2026-10-12   # quality flags
+alphaforge run configs/binance_perps_pit.yaml --set data.end=2026-10-12
 ```
 
 Expect about 1 minute of downloading. `data/store/ccxt_binance_swap/<symbol>/` then holds
@@ -331,16 +378,17 @@ src/alphaforge/   data · features · alpha · strategies · portfolio · backte
 configs/          multi_strategy · ml_walk_forward · binance_perps · cost_stress
 examples/         01_quickstart · 02_alpha_research · 03_ml_meta_labeling · 04_custom_strategy
 scripts/          smoke_test.py (one-command check)
-tests/            161 tests: causality properties, hand-computed accounting, CV leakage, paper/backtest parity, end-to-end runs
+tests/            181 tests: causality properties, hand-computed accounting, CV leakage, paper/backtest parity, end-to-end runs
 docs/             ARCHITECTURE.md · METHODOLOGY.md
 ```
 
 ## Roadmap
 
+- Drawdown overlay without the de-risking trap seen in 5b (time-decaying high-water mark), pre-registered before re-running
+- Capacity analysis: Sharpe as a function of AUM under the impact model
 - Live venue adapter (CCXT orders, balance reconciliation, kill switch) behind the existing `Broker` interface
 - Persisted, versioned models so walk-forward ML strategies can be paper-traded
-- Point-in-time universe selection (survivorship-free listings and delistings), which the real-data results above lack
-- Capacity analysis: Sharpe as a function of AUM under the impact model
+- Delisted-instrument history from a second source, to remove the survivorship that remains in 5b
 - Order-book data (L2 snapshots) for true microstructure features and spread-aware execution
 - Hierarchical risk parity and covariance shrinkage (Ledoit-Wolf) in allocation
 

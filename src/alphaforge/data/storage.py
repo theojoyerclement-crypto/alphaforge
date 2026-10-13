@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -43,8 +45,13 @@ class ParquetStore:
         timeframe: str,
         kind: str = "ohlcv",
         merge: bool = True,
+        meta: Mapping[str, Any] | None = None,
     ) -> Path:
-        """Persist ``frame`` (UTC-indexed); merge with any existing data when ``merge``."""
+        """Persist ``frame`` (UTC-indexed); merge with any existing data when ``merge``.
+
+        ``meta`` (e.g. exchange, client library version, requested range) is stored in the
+        JSON sidecar next to the row count, date range and content hash.
+        """
         target = self.path(source, symbol, timeframe, kind)
         target.parent.mkdir(parents=True, exist_ok=True)
         data = frame
@@ -64,9 +71,20 @@ class ParquetStore:
             "end": str(data.index.max()) if len(data) else None,
             "hash": hash_dataframe(data),
             "updated_at": datetime.now(UTC).isoformat(),
+            **dict(meta or {}),
         }
         target.with_suffix(".json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         return target
+
+    def metadata(
+        self, source: str, symbol: str, timeframe: str, kind: str = "ohlcv"
+    ) -> dict[str, Any] | None:
+        """The JSON sidecar of a stored file (``None`` if absent)."""
+        sidecar = self.path(source, symbol, timeframe, kind).with_suffix(".json")
+        if not sidecar.exists():
+            return None
+        meta: dict[str, Any] = json.loads(sidecar.read_text(encoding="utf-8"))
+        return meta
 
     def read(
         self,

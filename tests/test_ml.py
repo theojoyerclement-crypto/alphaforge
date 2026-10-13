@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from alphaforge.data.market_data import MarketData
 from alphaforge.ml import (
@@ -92,3 +94,77 @@ def test_regime_models(market: MarketData) -> None:
 def test_gmm_requires_fit() -> None:
     with pytest.raises(RuntimeError):
         GaussianMixtureRegimeModel().predict(pd.DataFrame({"volatility": [0.1]}))
+
+
+def _reference_triple_barrier(
+    close: pd.Series,
+    events: pd.DatetimeIndex,
+    volatility: pd.Series,
+    pt_mult: float,
+    sl_mult: float,
+    max_holding: int,
+    side: pd.Series | None,
+) -> pd.DataFrame:
+    """The original one-event-at-a-time loop, kept as the oracle for the vectorised version."""
+    prices, index, n = close.to_numpy(dtype=float), close.index, len(close)
+    positions = index.get_indexer(events)
+    vol = volatility.reindex(events).to_numpy(dtype=float)
+    sides = np.ones(len(events)) if side is None else side.reindex(events).to_numpy(dtype=float)
+    rows = []
+    for i, p in enumerate(positions):
+        if p < 0 or not np.isfinite(vol[i]) or vol[i] <= 0 or not np.isfinite(prices[p]):
+            continue
+        s = sides[i]
+        if not np.isfinite(s) or s == 0:
+            continue
+        end = p + max_holding
+        path = (prices[p + 1 : min(end, n - 1) + 1] / prices[p] - 1.0) * s
+        if len(path) == 0:
+            continue
+        upper = pt_mult * vol[i] if pt_mult > 0 else np.inf
+        lower = -sl_mult * vol[i] if sl_mult > 0 else -np.inf
+        up, dn = np.flatnonzero(path >= upper), np.flatnonzero(path <= lower)
+        first_up = up[0] if up.size else np.inf
+        first_dn = dn[0] if dn.size else np.inf
+        if np.isinf(first_up) and np.isinf(first_dn):
+            if end > n - 1:
+                continue
+            j, barrier = len(path) - 1, "time"
+        elif first_up <= first_dn:
+            j, barrier = int(first_up), "profit"
+        else:
+            j, barrier = int(first_dn), "stop"
+        ret = path[j]
+        if not np.isfinite(ret):
+            continue
+        label = float(ret > 0) if side is not None else float(np.sign(ret))
+        rows.append((index[p], index[p + 1 + j], float(ret), label, barrier))
+    return pd.DataFrame(rows, columns=["t0", "t1", "ret", "label", "barrier"]).set_index("t0")
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    seed=st.integers(0, 2**32 - 1),
+    n=st.integers(2, 80),
+    max_holding=st.integers(1, 15),
+    pt=st.sampled_from([0.0, 0.5, 1.0, 2.0]),
+    sl=st.sampled_from([0.0, 0.5, 1.0]),
+    meta=st.booleans(),
+    nan_share=st.sampled_from([0.0, 0.1]),
+)
+def test_triple_barrier_matches_reference_loop(
+    seed: int, n: int, max_holding: int, pt: float, sl: float, meta: bool, nan_share: float
+) -> None:
+    rng = np.random.default_rng(seed)
+    close = _path(list(100 * np.exp(np.cumsum(rng.normal(0, 0.02, n)))))
+    close[rng.random(n) < nan_share] = np.nan
+    vol = pd.Series(rng.uniform(0.0, 0.03, n), index=close.index)
+    vol[rng.random(n) < 0.1] = np.nan
+    events = close.index[rng.random(n) < 0.7]
+    side = pd.Series(rng.choice([-1.0, 0.0, 1.0], n), index=close.index) if meta else None
+    got = triple_barrier_labels(close, events, vol, pt, sl, max_holding, side)
+    expected = _reference_triple_barrier(close, events, vol, pt, sl, max_holding, side)
+    if expected.empty:
+        assert got.empty and isinstance(got.index, pd.DatetimeIndex)
+    else:
+        pd.testing.assert_frame_equal(got, expected, check_dtype=False)

@@ -15,8 +15,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from alphaforge.config.schema import PortfolioConfig
+from alphaforge.config.schema import PortfolioConfig, UniverseConfig
 from alphaforge.data.market_data import MarketData
+from alphaforge.data.universe import universe_mask
 from alphaforge.features.transforms import normalize_gross
 from alphaforge.portfolio.allocation import StrategyAllocator
 from alphaforge.portfolio.risk import PositionLimits, apply_position_limits
@@ -37,18 +38,35 @@ class PortfolioTargets:
 class PortfolioConstructor:
     """Turns raw strategy signals into a risk-managed target book."""
 
-    def __init__(self, config: PortfolioConfig | None = None) -> None:
+    def __init__(
+        self, config: PortfolioConfig | None = None, universe: UniverseConfig | None = None
+    ) -> None:
         self.config = config or PortfolioConfig()
+        self.universe = universe
         self.limits = PositionLimits(
             self.config.max_position, self.config.max_gross_leverage, self.config.max_net_leverage
         )
 
-    def size_sleeve(self, signals: pd.DataFrame, data: MarketData) -> pd.DataFrame:
-        """Risk-balance a strategy's signals across assets and scale to its vol target."""
+    def tradable(self, data: MarketData) -> pd.DataFrame:
+        """Where positions may be held: listed bars, gated by the point-in-time universe."""
+        if self.universe is None:
+            return data.close.notna()
+        return universe_mask(data, self.universe)
+
+    def size_sleeve(
+        self, signals: pd.DataFrame, data: MarketData, tradable: pd.DataFrame | None = None
+    ) -> pd.DataFrame:
+        """Risk-balance a strategy's signals across assets and scale to its vol target.
+
+        Signals outside ``tradable`` (default :meth:`tradable`) are zeroed *before* sizing, so
+        the sleeve's risk budget is spread over members only. Strategies still compute their
+        signals on the full candidate set, which keeps lookback history for symbols that join.
+        """
         cfg = self.config
         returns = data.returns()
+        mask = self.tradable(data) if tradable is None else tradable
         sig = signals.reindex_like(data.close).fillna(0.0).clip(-1.0, 1.0)
-        sig = sig.where(data.close.notna(), 0.0)
+        sig = sig.where(mask, 0.0)
         vol = asset_volatility(returns, cfg.vol_halflife, data.periods_per_year)
         raw = inverse_volatility(sig, vol)
         if cfg.sleeve_target_vol is None:
@@ -69,7 +87,8 @@ class PortfolioConstructor:
             raise ValueError("No strategy signals to combine")
         cfg = self.config
         returns = data.returns().fillna(0.0)
-        sleeves = {name: self.size_sleeve(sig, data) for name, sig in signals.items()}
+        tradable = self.tradable(data)
+        sleeves = {name: self.size_sleeve(sig, data, tradable) for name, sig in signals.items()}
         sleeve_returns = pd.DataFrame(
             {name: (w.shift(1) * returns).sum(axis=1) for name, w in sleeves.items()}
         )
@@ -100,5 +119,5 @@ class PortfolioConstructor:
         else:
             scale = pd.Series(1.0, index=data.index, name="vol_target_scale")
         weights = apply_position_limits(combined, self.limits)
-        weights = weights.where(data.close.notna(), 0.0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+        weights = weights.where(tradable, 0.0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
         return PortfolioTargets(weights, sleeves, allocation, sleeve_returns, scale)

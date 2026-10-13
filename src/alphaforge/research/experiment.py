@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -21,8 +22,9 @@ from alphaforge.backtest.walk_forward import WalkForwardRunner
 from alphaforge.config.loader import config_to_dict
 from alphaforge.config.schema import ExperimentConfig
 from alphaforge.data.cleaning import CleaningReport
-from alphaforge.data.loader import load_market_data
+from alphaforge.data.loader import load_dataset
 from alphaforge.data.market_data import MarketData
+from alphaforge.data.quality import QualityReport
 from alphaforge.portfolio.construction import PortfolioConstructor, PortfolioTargets
 from alphaforge.strategies import Strategy, build_strategy
 from alphaforge.utils.logging import configure_logging, get_logger
@@ -56,6 +58,8 @@ class ExperimentResult:
     run_dir: Path | None = None
     fold_metrics: pd.DataFrame | None = None
     extras: dict[str, pd.DataFrame] = field(default_factory=dict)
+    quality: QualityReport | None = None
+    data_sources: list[dict[str, Any]] = field(default_factory=list)
 
     def summary(self) -> pd.DataFrame:
         """Key metrics of the portfolio and each sleeve."""
@@ -108,8 +112,12 @@ def run_experiment(
     # Build strategies before touching data so a typo fails before any download.
     strategies = _strategy_factory(config)
     cleaning: list[CleaningReport] = []
+    quality: QualityReport | None = None
+    sources: list[dict[str, Any]] = []
     if data is None:
-        data, cleaning = load_market_data(config.data, config.cleaning, config.seed)
+        dataset = load_dataset(config.data, config.cleaning, config.seed)
+        data, cleaning = dataset.data, dataset.cleaning
+        quality, sources = dataset.quality, dataset.sources
 
     needs_fit = [label for label, s in strategies.items() if s.requires_fit]
     if needs_fit and not config.walk_forward.enabled:
@@ -118,7 +126,7 @@ def run_experiment(
             "set walk_forward.enabled: true"
         )
 
-    constructor = PortfolioConstructor(config.portfolio)
+    constructor = PortfolioConstructor(config.portfolio, config.data.universe)
     engine = BacktestEngine.from_config(config.backtest, config.costs, config.risk)
     sleeve_engine = BacktestEngine.from_config(config.backtest, config.costs, risk=None)
 
@@ -147,7 +155,16 @@ def run_experiment(
         for label, w in targets.sleeve_weights.items()
     }
     result = ExperimentResult(
-        config, data, portfolio, sleeves, targets, cleaning, run_dir, fold_metrics
+        config,
+        data,
+        portfolio,
+        sleeves,
+        targets,
+        cleaning,
+        run_dir,
+        fold_metrics,
+        quality=quality,
+        data_sources=sources,
     )
     logger.info(
         "Portfolio: %s", {k: round(v, 3) for k, v in result.summary().loc["portfolio"].items()}
@@ -171,9 +188,12 @@ def _persist(result: ExperimentResult) -> None:
         seed=config.seed,
         config_hash=hash_object(cfg_dict),
         data_hash=hash_dataframe(result.data.close),
+        data_sources=result.data_sources,
         git_commit=git_commit(),
         git_dirty=git_dirty(),
     ).to_json(run_dir / "manifest.json")
+    if result.quality is not None:
+        result.quality.table.to_csv(run_dir / "data_quality.csv")
     if result.cleaning:
         pd.DataFrame([r.to_dict() for r in result.cleaning]).to_csv(
             run_dir / "cleaning_report.csv", index=False
@@ -206,7 +226,7 @@ def run_alpha_research(
     configure_logging(config.log_level, run_dir / "run.log" if run_dir else None)
     set_global_seed(config.seed)
     if data is None:
-        data, _ = load_market_data(config.data, config.cleaning, config.seed)
+        data = load_dataset(config.data, config.cleaning, config.seed).data
     rc = config.research
     report = AlphaResearcher(horizons=rc.horizons, n_quantiles=rc.n_quantiles, fdr=rc.fdr).evaluate(
         data

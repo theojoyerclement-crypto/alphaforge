@@ -9,7 +9,16 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
+import pandas as pd
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from alphaforge.utils.time import timeframe_to_freq
 
@@ -19,7 +28,15 @@ def _date_to_str(value: object) -> object:
     return value.isoformat() if isinstance(value, date) else value
 
 
-DateStr = Annotated[str, BeforeValidator(_date_to_str)]
+def _parseable(value: str) -> str:
+    try:
+        pd.Timestamp(value)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"{value!r} is not a date (use e.g. 2021-01-01)") from exc
+    return value
+
+
+DateStr = Annotated[str, BeforeValidator(_date_to_str), AfterValidator(_parseable)]
 
 
 class _Model(BaseModel):
@@ -42,6 +59,32 @@ class SyntheticConfig(_Model):
     stagger_listings: bool = True
 
 
+class QualityConfig(_Model):
+    """Data-quality audit thresholds (see :mod:`alphaforge.data.quality`)."""
+
+    max_gap_bars: int = Field(5, ge=0, description="Longest tolerated interior NaN run")
+    stale_bars: int = Field(5, ge=2, description="Unchanged close on zero volume = dead feed")
+    spike_mad: float = Field(15.0, gt=0, description="Single-bar move reported as extreme")
+    min_funding_coverage: float = Field(0.95, ge=0, le=1, description="Of the listed period")
+    delisting_bars: int = Field(3, ge=0, description="Data ending earlier = ended_early")
+    on_fail: Literal["warn", "error", "ignore"] = "warn"
+
+
+class UniverseConfig(_Model):
+    """Point-in-time tradable universe; the defaults keep every listed symbol.
+
+    Membership at bar ``t`` uses data up to ``t`` only: a symbol must have ``min_history``
+    bars since listing and, if ``top_n`` is set, rank in the top ``top_n`` by trailing dollar
+    volume. This replaces "the coins that are big today" with "the coins that were liquid
+    then", which removes the hindsight in *selection* (not delisted coins absent from the data).
+    """
+
+    top_n: int | None = Field(None, ge=1, description="Keep the N most liquid eligible symbols")
+    rank_lookback: int = Field(30, ge=1, description="Bars of dollar volume in the ranking")
+    min_history: int = Field(0, ge=0, description="Bars since listing before eligibility")
+    rebalance_every: int = Field(1, ge=1, description="Membership review period in bars")
+
+
 class DataConfig(_Model):
     """Where market data comes from and which universe/timeframe to load."""
 
@@ -56,12 +99,32 @@ class DataConfig(_Model):
     include_funding: bool = True
     use_cache: bool = True
     synthetic: SyntheticConfig = SyntheticConfig()
+    quality: QualityConfig = QualityConfig()
+    universe: UniverseConfig = UniverseConfig()
 
     @field_validator("timeframe")
     @classmethod
     def _check_timeframe(cls, value: str) -> str:
         timeframe_to_freq(value)
         return value
+
+    @field_validator("symbols")
+    @classmethod
+    def _unique_symbols(cls, value: list[str]) -> list[str]:
+        duplicates = sorted({s for s in value if value.count(s) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate symbols {duplicates}")
+        return value
+
+    @model_validator(mode="after")
+    def _ordered_dates(self) -> DataConfig:
+        if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
+            raise ValueError(f"start ({self.start}) must be before end ({self.end})")
+        if self.universe.top_n is not None and self.universe.top_n > len(self.symbols):
+            raise ValueError(
+                f"universe.top_n={self.universe.top_n} exceeds the {len(self.symbols)} symbols"
+            )
+        return self
 
 
 class CleaningConfig(_Model):
@@ -70,6 +133,12 @@ class CleaningConfig(_Model):
     max_ffill_bars: int = Field(3, ge=0, description="Longest gap repaired by forward fill")
     outlier_mad_threshold: float = Field(20.0, gt=0, description="Spike threshold in MADs")
     repair_outliers: bool = True
+    stale_bars: int | None = Field(
+        5,
+        ge=2,
+        description="Runs of >= this many bars with unchanged OHLC and zero volume are a dead "
+        "feed (e.g. Binance keeps serving flat candles after a delisting): set untradable",
+    )
 
 
 class StrategySpec(_Model):

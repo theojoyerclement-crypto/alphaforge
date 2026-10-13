@@ -1,0 +1,40 @@
+# Point-in-time variant of binance_perps.yaml: same strategies, frictions and dates, but the
+# universe is decided bar by bar from data available then, instead of "12 coins that are big today".
+#   * 29 candidates, including coins listed after 2021 (APT, ARB, OP, SUI...) and one perp that
+#     was delisted mid-sample (FTM, Jan 2025: Binance still serves flat candles afterwards; the
+#     cleaner drops them as a dead feed and the position is flattened at the last real close).
+#   * Each month, the 12 most liquid by trailing 30-day dollar volume, after 90 days of trading.
+# Remaining bias, stated plainly: coins Binance no longer serves at all (LUNA, MATIC...) cannot be
+# candidates, so survivorship is reduced, not removed.
+name: binance_perps_pit
+description: Binance USDT-M perps, monthly top-12 by trailing liquidity from 29 candidates.
+seed: 42
+
+data:
+  source: ccxt
+  exchange: binance
+  market_type: swap
+  symbols: [BTC/USDT:USDT, ETH/USDT:USDT, SOL/USDT:USDT, BNB/USDT:USDT, XRP/USDT:USDT,
+            ADA/USDT:USDT, DOGE/USDT:USDT, AVAX/USDT:USDT, LINK/USDT:USDT, DOT/USDT:USDT,
+            LTC/USDT:USDT, ATOM/USDT:USDT, NEAR/USDT:USDT, FIL/USDT:USDT, APT/USDT:USDT,
+            ARB/USDT:USDT, OP/USDT:USDT, SUI/USDT:USDT, INJ/USDT:USDT, AAVE/USDT:USDT,
+            UNI/USDT:USDT, ETC/USDT:USDT, BCH/USDT:USDT, TRX/USDT:USDT, SAND/USDT:USDT,
+            AXS/USDT:USDT, ICP/USDT:USDT, 1000SHIB/USDT:USDT, FTM/USDT:USDT]
+  timeframe: 1d
+  start: "2021-01-01"
+  include_funding: true
+  storage_dir: data/store
+  universe:
+    top_n: 12
+    rank_lookback: 30
+    min_history: 90
+    rebalance_every: 30
+
+strategies:
+  - name: ts_momentum
+  - name: xs_momentum
+  - name: regime_switching
+  - name: funding_carry
+
+backtest:
+  start: "2021-07-01"

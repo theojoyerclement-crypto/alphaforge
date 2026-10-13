@@ -122,6 +122,7 @@ class RunManifest:
     seed: int
     config_hash: str
     data_hash: str | None = None
+    data_sources: list[dict[str, Any]] = field(default_factory=list)  # stored-file sidecars
     git_commit: str | None = None
     git_dirty: bool | None = None  # True: uncommitted changes to tracked files at run time
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())

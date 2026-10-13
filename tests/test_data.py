@@ -134,3 +134,21 @@ def test_ccxt_source_paginates_and_drops_the_forming_bar() -> None:
     assert frame.index.is_unique and frame.index.is_monotonic_increasing
     assert frame.index[-1] + pd.Timedelta("1h") <= pd.Timestamp.now(tz="UTC")
     assert source.fetch_funding("BTC/USDT:USDT") is None
+
+
+def test_dead_feed_after_delisting_becomes_untradable() -> None:
+    """Binance kept serving flat, zero-volume FTM candles for 21 months after the delisting."""
+    frame = _frame(60)
+    frame.index = pd.date_range("2023-01-01", periods=60, freq="1D", tz="UTC")
+    last = frame.iloc[39]
+    frame.iloc[40:, :4] = last["close"]  # placeholder candles: O=H=L=C=last close ...
+    frame.iloc[40:, 4] = 0.0  # ... on zero volume
+    frame.iloc[10:12, :4] = frame.iloc[9]["close"]  # 2 quiet flat bars: a market, not a feed
+    frame.iloc[10:12, 4] = 0.0
+    clean, report = clean_ohlcv(frame, "1d", CleaningConfig())
+    assert report.stale_removed == 20
+    assert clean["close"].dropna().index[-1] == frame.index[39], "the last real bar is kept"
+    assert clean.loc[frame.index[10:12], "close"].notna().all()
+
+    kept, report = clean_ohlcv(frame, "1d", CleaningConfig(stale_bars=None))
+    assert report.stale_removed == 0 and kept["close"].notna().sum() == 60

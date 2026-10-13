@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from alphaforge.data.schema import OHLCV_COLUMNS
-from alphaforge.data.sources.base import DataSource
+from alphaforge.data.sources.base import DataSource, DataSourceError
 from alphaforge.utils.logging import get_logger
 from alphaforge.utils.time import timeframe_to_timedelta
 
@@ -70,12 +70,18 @@ class CCXTSource(DataSource):
                 return fn(*args, **kwargs)
             except (self._ccxt.NetworkError, self._ccxt.ExchangeNotAvailable) as exc:
                 if attempt == self.max_retries:
-                    raise
+                    raise DataSourceError(
+                        f"{self.name}: {fn.__name__} failed after {attempt} attempts ({exc}). "
+                        "Check network access to the exchange, or run from the local store "
+                        "with data.source: parquet"
+                    ) from exc
                 logger.warning(
                     "%s failed (%s); retry %d in %.0fs", fn.__name__, exc, attempt, delay
                 )
                 time.sleep(delay)
                 delay *= 2
+            except self._ccxt.ExchangeError as exc:  # BadSymbol, permissions, geo-blocking...
+                raise DataSourceError(f"{self.name}: {fn.__name__} rejected: {exc}") from exc
         raise RuntimeError("unreachable")
 
     def fetch_ohlcv(

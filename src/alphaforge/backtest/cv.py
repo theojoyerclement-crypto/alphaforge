@@ -16,9 +16,17 @@ import numpy as np
 import pandas as pd
 
 
+def _as_ns(values: pd.Index | pd.Series | np.ndarray) -> np.ndarray:
+    """Integer nanoseconds. pandas 3 keeps s/ms/us resolutions, so ``asi8`` of two indexes can
+    be in different units; comparing them raw would silently break purging."""
+    if isinstance(values, np.ndarray) and values.dtype.kind in "iu":
+        return values.astype(np.int64)
+    return np.asarray(pd.DatetimeIndex(pd.Series(values).to_numpy()).as_unit("ns").asi8)
+
+
 def _times(t0: pd.Index | np.ndarray, t1: pd.Series | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    start = np.asarray(pd.DatetimeIndex(t0).asi8 if isinstance(t0, pd.Index) else t0)
-    end = np.asarray(pd.DatetimeIndex(np.asarray(t1)).asi8)
+    start = _as_ns(t0)
+    end = _as_ns(t1)
     if start.shape != end.shape:
         raise ValueError("t0 and t1 must have the same length")
     if (end < start).any():

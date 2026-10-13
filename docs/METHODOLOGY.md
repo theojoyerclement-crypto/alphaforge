@@ -55,6 +55,9 @@
 | In-sample ML evaluation | `ConfigurationError` without walk-forward | `research.experiment` |
 | Listing bias | NaN before listing = untradable; never forward-filled | `data.cleaning`, `MarketData` |
 | Unfinished bars | The exchange's still-forming candle is dropped at ingestion | `CCXTSource.fetch_ohlcv` |
+| Dead feeds (placeholder candles after delisting/halts) | Runs of flat, zero-volume bars set untradable | `clean_ohlcv(stale_bars)` |
+| Selection hindsight in the universe | Point-in-time membership: listing age + trailing liquidity rank | `data.universe`, `universe_mask` |
+| Silent data defects | Per-symbol audit (gaps, dead feeds, funding coverage, early end); `on_fail: error` stops the run | `data.quality`, `alphaforge validate` |
 | Data snooping | Benjamini-Hochberg + Deflated Sharpe | `alpha.validation` |
 | Ignoring carry | Funding charged bar by bar on every position | `BacktestEngine` |
 
@@ -62,9 +65,11 @@ Known residual limitations, stated plainly:
 
 * Outlier repair looks one bar ahead (a bad tick is a spike that reverts). This is acceptable as
   historical hygiene, but a live system could not do it. The threshold is deliberately high (20 MADs).
-* The universe is fixed by the config: no point-in-time constituent selection yet. For the
-  real-data config this means **survivorship bias**: the 12 perps are today's large caps,
-  picked with hindsight, so the result is biased upwards.
+* `binance_perps.yaml` keeps a fixed, hindsight-picked universe as a baseline. The
+  point-in-time variant removes the *selection* hindsight but not survivorship in the data:
+  instruments that the venue no longer serves at all (LUNA, MATIC) cannot be candidates.
+* A delisted position is flattened at the last real close, at normal costs. Real delistings
+  often gap down first, so this is optimistic.
 * Impact parameters are literature defaults (`k = 0.1`), not calibrated on fills.
 * The drawdown controller caps the loss *per episode*: after a hard stop and cooldown, the
   high-water mark resets. Cumulative drawdown across episodes can exceed `max_drawdown`.
@@ -92,13 +97,31 @@ requires it to stay silent when the sample is too small. Edges are calibrated to
 
 `configs/binance_perps.yaml` was written before the real data was looked at and has not been
 tuned since. Running it on Binance USDT-M perps (Jul 2021 – Oct 2026) gives a net Sharpe of
-0.42, against 0.44 for BTC buy & hold, with a −27% drawdown instead of −78% and near-zero
-beta. The edges planted in the synthetic market were stronger than reality: funding carry
-falls from Sharpe 2.0 to 0.38. One instructive result: `low_vol_60` has the largest rank IC
-(t = 8) and a *negative* long-short Sharpe. An IC weights every day equally, while dollar PnL
-is dominated by the few high-dispersion days when volatile alts rally. Rank-based evidence
-has to be confirmed in PnL terms. Full table and caveats are in the
-[README](../README.md#5-real-market-binance-usdt-m-perpetuals).
+0.35, against 0.44 for BTC buy & hold, with a −28% drawdown instead of −78% and near-zero
+beta. Three lessons generalise:
+
+* **Hindsight universes flatter results.** Picking the 12 coins that are large *today* is a
+  selection on the outcome. The point-in-time variant (`binance_perps_pit.yaml`) trades the
+  monthly top 12 by trailing liquidity among 29 candidates, one of them delisted. Overlay off,
+  the portfolio Sharpe falls from +0.53 to −0.15, and funding carry from +0.38 to −0.32.
+  Only time-series momentum holds up.
+* **Synthetic edges were stronger than reality.** Funding carry has Sharpe 2.0 on the
+  synthetic market, and at best 0.38 on real data.
+* **A rank IC is not a PnL.** `low_vol_60` has the largest rank IC (t = 8) and a *negative*
+  long-short Sharpe. An IC weights every day equally, while dollar PnL is dominated by the few
+  high-dispersion days when volatile alts rally.
+
+Two failure modes surfaced only on real data and are now handled in code:
+
+* **Dead feeds after delisting.** Binance keeps serving flat, zero-volume candles for a
+  delisted perp (FTM: 644 days of them). Treated as prices, they give the sizer a
+  zero-volatility asset and a maximal position. `clean_ohlcv` drops runs of `stale_bars` flat,
+  zero-volume bars, and `alphaforge validate` reports them.
+* **Path-dependent overlays can trap a book.** With a linear de-risking band between the soft
+  and hard drawdown limits, the PIT book sat at 5–10% exposure for four years. This is reported
+  as found and has not been tuned away.
+
+Full tables and caveats are in the [README](../README.md#5-real-market-binance-usdt-m-perpetuals).
 
 ## References
 

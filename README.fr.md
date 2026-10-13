@@ -9,7 +9,7 @@ commit, à la seed et au hash des données près.
 
 🇬🇧 [English version](README.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Méthodologie](docs/METHODOLOGY.md) · 🤝 [Contribuer](CONTRIBUTING.md)
 
-![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-161%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
+[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-181%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
 
 ---
 
@@ -84,7 +84,7 @@ l'ordre est exécuté.
 
 | | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/an |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portefeuille (risk parity, cible 20 % de vol)** | **9,5 %** | 15,8 % | **0,65** | 0,95 | −27,2 % | 119× |
+| **Portefeuille (risk parity, cible 20 % de vol)** | **30,3 %** | 21,0 % | **1,37** | 2,08 | −18,1 % | 168× |
 | Carry de funding | 36,3 % | 16,0 % | 2,02 | 3,10 | −15,2 % | 51× |
 | Momentum cross-sectionnel | 5,8 % | 15,1 % | 0,45 | 0,63 | −24,7 % | 76× |
 | Momentum time-series | 0,7 % | 15,3 % | 0,12 | 0,17 | −20,2 % | 49× |
@@ -103,6 +103,18 @@ l'ordre est exécuté.
 Ces résultats sont publiés tels quels, sans réglage a posteriori : le ML **ne bat pas** une
 simple règle de carry sur ces données, et le framework le dit.
 
+> **Correction (audit de la Phase A).** Les lignes « portefeuille » des tableaux 3 et 5 avaient
+> d'abord été publiées avec un solveur de risk parity qui **divergeait en silence** quand des
+> sleeves étaient négativement corrélées. Il renvoyait par exemple 100 % sur une seule sleeve au
+> lieu de contributions au risque égales, et s'écartait de l'ERC de plus de 25 points sur 18 %
+> des barres de `multi_strategy` et 1 % de `binance_perps`. Le solveur est désormais un Newton
+> amorti sur la formulation convexe de l'ERC, avec des contributions égales à 1e-12 et un test
+> de régression sur le cas défaillant. Lignes corrigées : Sharpe synthétique 0,65 → **1,37**,
+> car un vrai ERC diversifie mieux la sleeve carry. Sharpe Binance 0,42 → **0,35**, car les
+> barres mal allouées étaient des paris concentrés qui avaient été chanceux. Les sleeves, la
+> recherche d'alphas, le stress des coûts et le ML en walk-forward n'utilisent pas le solveur et
+> sont inchangés (l'equity walk-forward bouge de moins de 1e-10).
+
 ### 5. Marché réel : perpétuels Binance USDT-M
 
 `configs/binance_perps.yaml` **n'a pas été modifié depuis le commit initial** et n'a donc pas été
@@ -113,7 +125,7 @@ LINK, DOT, LTC, ATOM), barres journalières, funding réel toutes les 8 h, éval
 
 | Net de tous coûts et du funding | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/an |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portefeuille (risk parity, cible 20 % de vol)** | **6,1 %** | 18,0 % | **0,42** | 0,60 | −27,4 % | 121× |
+| **Portefeuille (risk parity, cible 20 % de vol)** | **4,9 %** | 18,0 % | **0,35** | 0,50 | −27,7 % | 119× |
 | Momentum time-series | 5,5 % | 15,5 % | 0,43 | 0,61 | −22,9 % | 38× |
 | Carry de funding | 5,1 % | 16,7 % | 0,38 | 0,53 | −28,8 % | 60× |
 | Momentum cross-sectionnel | 2,1 % | 17,0 % | 0,21 | 0,29 | −30,7 % | 91× |
@@ -121,29 +133,57 @@ LINK, DOT, LTC, ATOM), barres journalières, funding réel toutes les 8 h, éval
 | *Référence : BTC perp buy & hold* | *10,0 %* | *52,2 %* | *0,44* | | *−78,0 %* | |
 | *Référence : panier long équipondéré* | *−1,0 %* | *68,4 %* | *0,33* | | *−79,3 %* | |
 
-Par année civile : 2021 S2 +10,5 % · 2022 −17,4 % · 2023 +5,0 % · 2024 +24,6 % · 2025 +22,0 % ·
-2026 à date −6,3 %. Attribution annualisée : prix +12,9 %, funding +2,0 %, **coûts −7,4 %**.
-Le portefeuille est à peu près market-neutral (exposition nette moyenne −0,01, brute 0,93,
-corrélation journalière à BTC −0,11).
+Par année civile : 2021 S2 +10,5 % · 2022 −17,4 % · 2023 +3,3 % · 2024 +23,8 % · 2025 +22,0 % ·
+2026 à date −9,7 %. Attribution annualisée : prix +11,6 %, funding +2,0 %, **coûts −7,3 %**.
+Le portefeuille est à peu près market-neutral (exposition nette moyenne −0,01, brute 0,92,
+corrélation journalière à BTC −0,12).
+
+**5b. Le même portefeuille sur un univers point-in-time** (`configs/binance_perps_pit.yaml`).
+La liste de 12 coins ci-dessus est un choix a posteriori : ces coins sont gros aujourd'hui
+*parce qu'ils* ont survécu et monté. Cette variante garde les mêmes stratégies, frictions et
+dates. Chaque mois, elle trade les 12 perps les plus liquides du moment, selon le volume en
+dollars des 30 derniers jours et après 90 jours de cotation. Les 29 candidats incluent des coins
+listés plus tard (APT, ARB, OP, SUI...) et **FTM, délisté en janvier 2025**. Binance continue de
+servir des bougies FTM plates, à volume nul, après le délisting. Le nettoyage les écarte comme
+un flux mort, si bien que FTM sort de l'univers au lieu de devenir un actif « sans risque » à
+volatilité nulle.
+
+| Net de tous coûts et du funding | CAGR | Vol | Sharpe | Max DD | Turnover/an |
+|---|---:|---:|---:|---:|---:|
+| **Portefeuille (overlay de drawdown par défaut)** | **−4,5 %** | 6,9 % | **−0,63** | −29,5 % | 25× |
+| Portefeuille, overlay de drawdown désactivé | −5,1 % | 20,6 % | −0,15 | | |
+| Momentum time-series | 5,0 % | 15,3 % | 0,39 | −20,4 % | 35× |
+| Momentum cross-sectionnel | 1,1 % | 15,2 % | 0,15 | −21,8 % | 65× |
+| Carry de funding | −5,7 % | 15,0 % | **−0,32** | −41,3 % | 47× |
+| Changement de régime | −11,5 % | 15,7 % | −0,70 | −50,4 % | 102× |
 
 Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
 
-* **Pas de meilleur rendement ajusté du risque que de détenir du BTC** (Sharpe 0,42 contre
-  0,44). Les vraies différences sont un drawdown de −27 % au lieu de −78 % et un bêta proche de zéro.
-* **Les edges synthétiques étaient optimistes.** Le carry de funding passe d'un Sharpe de 2,0
-  sur le marché synthétique à 0,38 sur données réelles. Le changement de régime perd de l'argent
-  dans les deux cas.
-* **Les coûts prennent la moitié de l'edge brut.** Le framework les fait payer, c'est le but.
+* **Le choix a posteriori de l'univers valait environ 0,7 de Sharpe.** Overlay désactivé, le
+  portefeuille passe de +0,53 sur l'univers a posteriori à −0,15 en point-in-time. Le carry de
+  funding passe de +0,38 à −0,32. Seul le momentum time-series résiste (0,43 → 0,39). Le
+  chiffre de référence est le chiffre point-in-time.
+* **Pas de meilleur rendement ajusté du risque que de détenir du BTC**, même sur l'univers
+  flatteur (Sharpe 0,35 contre 0,44). Les vraies différences sont un drawdown de −28 % au lieu de
+  −78 % et un bêta proche de zéro.
+* **L'overlay de drawdown par défaut a un défaut connu.** Entre la limite souple (15 %) et la
+  limite dure (30 %), l'exposition décroît linéairement. En 5b, elle est tombée à 5–10 % pendant
+  quatre ans : trop peu pour regagner le plus-haut, jamais assez bas pour atteindre le stop dur
+  qui le réinitialise. Il coûte aussi du Sharpe sur l'univers fixe (0,53 → 0,35). Le corriger
+  est le prochain point de la feuille de route. Changer la valeur par défaut après avoir vu ces
+  chiffres reviendrait à régler sur l'échantillon de test.
+* **Les coûts prennent plus de la moitié de l'edge brut en prix.** Le framework les fait payer,
+  c'est le but.
 * Sur données réelles, le classement des alphas retient les signaux de funding
   (`funding_reversal_90` t = 3,4, `funding_carry_21` t = 2,0, tous deux significatifs après BH)
   et rejette le momentum 60 jours (t = 0,04). `low_vol_60` a l'IC de rang le plus élevé (t = 8)
   mais un Sharpe long-short **négatif**. L'IC pondère chaque jour de la même façon, alors que le
   PnL en dollars est dominé par les rares jours de forte dispersion où les alts volatils
   s'envolent. Un IC de rang n'est pas un PnL.
-* **Limites.** L'univers est composé des survivants d'aujourd'hui, choisis a posteriori : c'est
-  un biais du survivant en notre faveur. Il ne couvre qu'une plateforme, 12 actifs et une seule
-  trajectoire, sans analyse de capacité. C'est un contrôle de cohérence de la chaîne sur données
-  réelles, pas un historique de performance.
+* **Limites.** Les coins que Binance ne sert plus du tout (LUNA, MATIC...) ne peuvent pas être
+  candidats : le biais du survivant est réduit, pas supprimé. Il n'y a qu'une plateforme et une
+  seule trajectoire, sans analyse de capacité. C'est un contrôle de cohérence de la chaîne sur
+  données réelles, pas un historique de performance.
 
 ## Démarrage rapide
 
@@ -172,7 +212,7 @@ replay paper-trading de 10 barres. Il affiche le chemin du rapport HTML
 `--quick` saute les tests. Les commandes individuelles :
 
 ```bash
-pytest                                                # 161 tests, ~2 min
+pytest                                                # 181 tests, ~2 min
 alphaforge list                                       # stratégies, features, alphas
 alphaforge research configs/multi_strategy.yaml       # classement des alphas
 alphaforge run configs/multi_strategy.yaml            # backtest + rapport HTML dans runs/
@@ -196,6 +236,14 @@ alphaforge fetch --exchange binance --timeframe 1d --start 2021-01-01 --symbols 
 alphaforge run configs/binance_perps.yaml --set data.end=2026-10-12      # le tableau ci-dessus
 alphaforge research configs/binance_perps.yaml --set data.end=2026-10-12
 alphaforge run configs/binance_perps.yaml                                # jusqu'à la dernière barre clôturée
+
+# 5b, univers point-in-time : 17 candidats de plus, puis le run PIT
+alphaforge fetch --exchange binance --timeframe 1d --start 2021-01-01 --end 2026-10-12 --symbols \
+  NEAR/USDT:USDT FIL/USDT:USDT APT/USDT:USDT ARB/USDT:USDT OP/USDT:USDT SUI/USDT:USDT \
+  INJ/USDT:USDT AAVE/USDT:USDT UNI/USDT:USDT ETC/USDT:USDT BCH/USDT:USDT TRX/USDT:USDT \
+  SAND/USDT:USDT AXS/USDT:USDT ICP/USDT:USDT 1000SHIB/USDT:USDT FTM/USDT:USDT
+alphaforge validate configs/binance_perps_pit.yaml --set data.end=2026-10-12   # drapeaux qualité
+alphaforge run configs/binance_perps_pit.yaml --set data.end=2026-10-12
 ```
 
 Le téléchargement prend environ 1 minute. Ensuite, `data/store/ccxt_binance_swap/<symbole>/`

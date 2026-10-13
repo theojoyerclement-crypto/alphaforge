@@ -65,37 +65,38 @@ def triple_barrier_labels(
     positions = index.get_indexer(events)
     vol = volatility.reindex(events).to_numpy(dtype=float)
     sides = np.ones(len(events)) if side is None else side.reindex(events).to_numpy(dtype=float)
+    valid = (positions >= 0) & np.isfinite(vol) & (vol > 0) & np.isfinite(sides) & (sides != 0)
+    valid[valid] &= np.isfinite(prices[positions[valid]])
+    pos, vol, sides = positions[valid], vol[valid], sides[valid]
+    if max_holding < 1:
+        pos = pos[:0]
+        max_holding = 1
 
-    rows: list[tuple[pd.Timestamp, pd.Timestamp, float, float, str]] = []
-    for i, p in enumerate(positions):
-        if p < 0 or not np.isfinite(vol[i]) or vol[i] <= 0 or not np.isfinite(prices[p]):
-            continue
-        s = sides[i]
-        if not np.isfinite(s) or s == 0:
-            continue
-        end = p + max_holding
-        path = (prices[p + 1 : min(end, n - 1) + 1] / prices[p] - 1.0) * s
-        if len(path) == 0:
-            continue
-        upper = pt_mult * vol[i] if pt_mult > 0 else np.inf
-        lower = -sl_mult * vol[i] if sl_mult > 0 else -np.inf
-        hits_up = np.flatnonzero(path >= upper)
-        hits_dn = np.flatnonzero(path <= lower)
-        first_up = hits_up[0] if hits_up.size else np.inf
-        first_dn = hits_dn[0] if hits_dn.size else np.inf
-        if np.isinf(first_up) and np.isinf(first_dn):
-            if end > n - 1:
-                continue  # incomplete horizon, unknown outcome
-            j, barrier = len(path) - 1, "time"
-        elif first_up <= first_dn:
-            j, barrier = int(first_up), "profit"
-        else:
-            j, barrier = int(first_dn), "stop"
-        ret = path[j]
-        if not np.isfinite(ret):
-            continue
-        label = float(ret > 0) if side is not None else float(np.sign(ret))
-        rows.append((index[p], index[p + 1 + j], float(ret), label, barrier))
+    # paths[k, j]: side-adjusted return from close pos[k] to close pos[k] + 1 + j. Bars past the
+    # end of the data are NaN, which never touch a barrier (vectorised over all events at once).
+    padded = np.concatenate([prices[1:], np.full(max_holding, np.nan)])
+    window = np.lib.stride_tricks.sliding_window_view(padded, max_holding)[pos]
+    with np.errstate(invalid="ignore"):
+        paths = (window / prices[pos, None] - 1.0) * sides[:, None]
+        upper = pt_mult * vol if pt_mult > 0 else np.full(len(pos), np.inf)
+        lower = -sl_mult * vol if sl_mult > 0 else np.full(len(pos), -np.inf)
+        hit_up = paths >= upper[:, None]
+        hit_dn = paths <= lower[:, None]
+    never = max_holding  # sentinel: barrier not touched within the window
+    first_up = np.where(hit_up.any(axis=1), hit_up.argmax(axis=1), never)
+    first_dn = np.where(hit_dn.any(axis=1), hit_dn.argmax(axis=1), never)
 
-    out = pd.DataFrame(rows, columns=["t0", "t1", "ret", "label", "barrier"])
+    touched = (first_up < never) | (first_dn < never)
+    complete = pos + max_holding <= n - 1  # vertical barrier inside the data
+    keep = touched | complete  # untouched and cut short by the data end: outcome unknown
+    j = np.where(touched, np.minimum(first_up, first_dn), max_holding - 1)
+    barrier = np.where(~touched, "time", np.where(first_up <= first_dn, "profit", "stop"))
+    ret = paths[np.arange(len(pos)), j]
+    keep &= np.isfinite(ret)
+
+    pos, j, ret, barrier = pos[keep], j[keep], ret[keep], barrier[keep]
+    label = (ret > 0).astype(float) if side is not None else np.sign(ret)
+    out = pd.DataFrame(
+        {"t0": index[pos], "t1": index[pos + 1 + j], "ret": ret, "label": label, "barrier": barrier}
+    )
     return out.set_index("t0")

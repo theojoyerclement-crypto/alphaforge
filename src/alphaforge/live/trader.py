@@ -69,7 +69,7 @@ class PaperTrader:
                 f"Strategies {needs_fit} must be fitted; paper trading supports rule-based "
                 "strategies only (persisted models are on the roadmap)"
             )
-        self.constructor = PortfolioConstructor(config.portfolio)
+        self.constructor = PortfolioConstructor(config.portfolio, config.data.universe)
         self.engine = BacktestEngine.from_config(config.backtest, config.costs, config.risk)
         self.controller = self.engine.drawdown_controller
         self.delay = config.backtest.execution_delay

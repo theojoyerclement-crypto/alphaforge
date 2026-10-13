@@ -1,8 +1,9 @@
 """OHLCV cleaning with an auditable report.
 
 Pipeline (per symbol): normalise to UTC -> sort/de-duplicate -> invalidate non-positive prices
--> repair spike-and-revert bad ticks -> reindex onto the full bar grid -> forward-fill short gaps
-(flat bars, zero volume) -> enforce OHLC consistency.
+-> drop dead-feed runs (flat OHLC on zero volume) -> repair spike-and-revert bad ticks -> reindex
+onto the full bar grid -> forward-fill short gaps (flat bars, zero volume) -> enforce OHLC
+consistency.
 
 Gaps longer than ``max_ffill_bars`` stay ``NaN``: the asset is treated as untradable there
 rather than inventing prices.
@@ -32,10 +33,28 @@ class CleaningReport:
     outliers_repaired: int = 0
     gaps_filled: int = 0
     gaps_remaining: int = 0
+    stale_removed: int = 0
     ohlc_fixed: int = 0
 
     def to_dict(self) -> dict[str, int | str]:
         return asdict(self)
+
+
+def _dead_feed(frame: pd.DataFrame, min_bars: int) -> pd.Series:
+    """Bars belonging to a run of >= ``min_bars`` identical OHLC bars with zero volume.
+
+    One flat bar can be a quiet market; a long run is a venue serving placeholder candles
+    (after a delisting or a halt). Treating those as tradable would hand the sizer an asset
+    with zero volatility, i.e. a maximal, riskless-looking position.
+    """
+    prices = frame[list(PRICE_COLUMNS)]
+    flat = (prices.diff().abs().sum(axis=1, min_count=4) == 0) & (frame["volume"] == 0)
+    run_id = (~flat).cumsum()
+    run_len = flat.groupby(run_id).transform("sum")
+    in_run = flat & (run_len + 1 >= min_bars)  # +1: the bar that started the flat run
+    starts = in_run & ~in_run.shift(1, fill_value=False)
+    first_bar = starts.shift(-1, fill_value=False) & (frame["volume"] == 0)
+    return in_run | first_bar
 
 
 def clean_ohlcv(
@@ -73,6 +92,10 @@ def clean_ohlcv(
     out.loc[invalid, list(PRICE_COLUMNS)] = np.nan
     out["volume"] = out["volume"].clip(lower=0.0)
 
+    stale = _dead_feed(out, cfg.stale_bars) if cfg.stale_bars else pd.Series(False, out.index)
+    report.stale_removed = int(stale.sum())
+    out.loc[stale, list(OHLCV_COLUMNS)] = np.nan
+
     if cfg.repair_outliers and out["close"].notna().sum() > 10:
         log_ret = np.log(out["close"]).diff()
         centered = log_ret - log_ret.median()
@@ -95,7 +118,7 @@ def clean_ohlcv(
 
     missing = out["close"].isna()
     filled_close = out["close"].ffill(limit=cfg.max_ffill_bars)
-    filled = missing & filled_close.notna()
+    filled = missing & filled_close.notna() & ~stale.reindex(grid, fill_value=False)
     for col in PRICE_COLUMNS:
         out[col] = out[col].where(~filled, filled_close)
     out["volume"] = out["volume"].where(~filled, 0.0)
