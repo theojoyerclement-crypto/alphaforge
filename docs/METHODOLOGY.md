@@ -123,6 +123,49 @@ Two failure modes surfaced only on real data and are now handled in code:
 
 Full tables and caveats are in the [README](../README.md#5-real-market-binance-usdt-m-perpetuals).
 
+## 6. Pre-registered change: drawdown overlay v2 (2026-10-13)
+
+Written and committed **before** any backtest was re-run with the new rule. The commit that
+adds this section precedes the commit with the results, so the order can be checked in git.
+
+**Diagnosis.** The v1 controller measures drawdown on the equity *it produces itself*. Inside
+the de-risking band, exposure falls, so equity stops moving, so drawdown stops changing. The
+book can neither recover its high-water mark nor reach the hard stop that would reset it. In
+`binance_perps_pit` it sat at 5–10% exposure for four years. The thresholds are not the
+problem; the feedback loop is.
+
+**Rule v2.** The drawdown is measured on a **shadow book**: the same targets at full
+exposure, with the same execution delay, costs and funding, simulated bar by bar alongside the
+real book. It is exactly the "overlay off" book. The exposure multiplier is the v1 function
+applied to the shadow drawdown:
+
+* shadow drawdown < `drawdown_soft_limit`: multiplier 1;
+* between the soft limit and `max_drawdown`: falls linearly from 1 to 0;
+* at or beyond `max_drawdown`: 0 for `cooldown_bars`, then the shadow high-water mark resets
+  to the current shadow equity.
+
+The overlay therefore de-risks while *the strategy* is in drawdown and re-risks when *the
+strategy* recovers, whatever the overlay itself did. Everything stays causal: the shadow NAV at
+bar *t* uses data ≤ *t*.
+
+**Fixed in advance:**
+
+* The parameters are unchanged from the initial commit: soft limit 15%, hard limit 30%,
+  cooldown 20 bars. No other basis, threshold or high-water-mark window will be tried on these
+  data.
+* v2 becomes the default (`risk.drawdown_basis: shadow`). v1 remains available as
+  `drawdown_basis: realized`, so the earlier tables can be reproduced.
+* The tests below must pass before any reference config is re-run:
+  1. **No trap.** If the strategy recovers its high-water mark, exposure returns to 1.
+  2. **Shadow = overlay off.** The shadow equity equals the equity of the same book run
+     without any overlay, to floating-point precision.
+  3. **Causality.** Scrambling the future leaves past multipliers unchanged.
+  4. **Paper parity.** The paper trader keeps its own shadow account and still reproduces the
+     backtest to 1e-10.
+* **Reporting.** Every reference config is re-run with v2, and v1 / v2 / overlay off are
+  published side by side, whatever the outcome. If v2 does worse, that is reported as it is,
+  and any later change to the overlay needs a new pre-registration.
+
 ## References
 
 * Bailey, D. & López de Prado, M. (2014). *The Deflated Sharpe Ratio.*
