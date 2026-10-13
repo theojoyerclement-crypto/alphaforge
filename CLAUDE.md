@@ -8,7 +8,9 @@ Design rationale: `docs/ARCHITECTURE.md`; bias controls: `docs/METHODOLOGY.md`. 
 - Single area: `python -m pytest tests/test_backtest.py -q`
 - Run: `PYTHONPATH=src python -m alphaforge run configs/multi_strategy.yaml [--no-save] [--set a.b=v]`
 - Alpha leaderboard: `PYTHONPATH=src python -m alphaforge research configs/multi_strategy.yaml`
-- Static checks (same as CI): `ruff check src tests examples`, `ruff format --check src tests examples`, `mypy`
+- Paper parity demo: `PYTHONPATH=src python -m alphaforge paper configs/multi_strategy.yaml --replay 10`
+- Everything a reviewer runs: `python scripts/smoke_test.py` (~4 min)
+- Static checks (same as CI): `ruff check src tests examples scripts`, `ruff format --check src tests examples scripts`, `mypy`
 - Windows: use `python`, not `python3` (the latter is the Microsoft Store stub and prints nothing).
 
 ## Invariants (do not break)
@@ -19,6 +21,9 @@ Design rationale: `docs/ARCHITECTURE.md`; bias controls: `docs/METHODOLOGY.md`. 
 - Strategies that learn set `requires_fit = True`; they only run under walk-forward (enforced in `research/experiment.py`).
 - Panels are wide `time × symbol`, UTC tz-aware index. `NaN` close = untradable; never forward-fill across listing gaps.
 - Engine identity `net = gross + funding − costs` is asserted in tests.
+- `live/` (paper trading) must reuse the backtest's code: `mark_to_market`, `cost_model`, `cost_inputs`,
+  `PortfolioConstructor`. `tests/test_live.py` asserts replayed paper NAV == `BacktestEngine` equity.
+- Real-data README tables use `configs/binance_perps.yaml` with `--set data.end=2026-10-12`; data lives in `data/store/` (not committed).
 - `backtest/walk_forward.py` imports strategies only under `TYPE_CHECKING` (avoids an import cycle; `tests/test_imports.py` guards it).
 
 ## Conventions

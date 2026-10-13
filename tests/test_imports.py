@@ -24,6 +24,7 @@ PACKAGES = [
     "alphaforge.analytics",
     "alphaforge.analytics.report",
     "alphaforge.research",
+    "alphaforge.live",
     "alphaforge.cli",
 ]
 

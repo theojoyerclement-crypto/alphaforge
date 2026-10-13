@@ -110,3 +110,22 @@ def test_constructor_end_to_end(market: MarketData) -> None:
     assert targets.weights.abs().sum(axis=1).max() <= 1.5 + 1e-9
     assert np.allclose(targets.allocation.sum(axis=1), 1.0)
     assert set(targets.sleeve_weights) == {"trend", "carry"}
+
+
+@pytest.mark.parametrize("allocation", ["equal", "inverse_vol", "risk_parity"])
+def test_portfolio_construction_is_causal(market: MarketData, allocation: str) -> None:
+    """Targets at t must not move when the future is scrambled: the paper trader relies on it."""
+    from tests.conftest import perturb_future
+
+    cutoff = 600
+    names = ("ts_momentum", "funding_carry", "zscore_reversion")
+    constructor = PortfolioConstructor(PortfolioConfig(allocation=allocation))
+
+    def targets(data: MarketData) -> pd.DataFrame:
+        signals = {n: build_strategy(n).generate_signals(data) for n in names}
+        return constructor.build(signals, data).weights
+
+    base = targets(market)
+    scrambled = targets(perturb_future(market, cutoff))
+    pd.testing.assert_frame_equal(base.iloc[:cutoff], scrambled.iloc[:cutoff])
+    assert not base.iloc[cutoff:].equals(scrambled.iloc[cutoff:])

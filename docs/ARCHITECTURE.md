@@ -1,5 +1,17 @@
 # Architecture
 
+## Design choices that matter to a hiring manager
+
+| Choice | Consequence | Proof |
+|---|---|---|
+| **Causality is enforced by tests, not by reviews.** Every registered feature and strategy, and the portfolio constructor, is re-run with the future scrambled. | A new strategy cannot silently peek ahead: the existing tests fail. | `tests/test_features.py`, `tests/test_strategies.py`, `tests/test_live.py` |
+| **Strategies emit direction only** (`[-1, 1]`). Sizing, vol targeting, allocation, costs and funding live downstream. | The same signal can be scored alone, inside a book, or under harsher frictions without editing it. | `strategies/base.py`, `portfolio/construction.py` |
+| **Frictions are on by default**: 1 bar of latency, fees, spread, square-root impact and perp funding. Turnover is measured on drifted weights. | Turning realism *off* takes an explicit override, and the cost-stress config shows what that hides. | `backtest/engine.py`, `configs/cost_stress.yaml` |
+| **One accounting function for backtest and live.** `mark_to_market` and the cost model are shared by `BacktestEngine` and `PaperBroker`. | Replaying history through the paper account reproduces backtest equity to 1e-10. | `live/`, `tests/test_live.py` |
+| **Learning strategies can only run under walk-forward.** | No in-sample ML result can be produced by accident. | `research/experiment.py` |
+| **A run is identified by its config.** The config is a strict pydantic schema, and the manifest records config, data and code hashes, a dirty-tree flag, the seed and package versions. | Any number in the README can be traced back to an exact input. | `config/schema.py`, `utils/reproducibility.py` |
+| **Layered packages with an import-cycle guard.** | Each layer can be tested and replaced on its own. | `tests/test_imports.py`, [dependency order](#module-dependency-order) |
+
 ## Design principles
 
 1. **Causality is a tested property, not a convention.** Every feature and rule-based strategy
@@ -33,7 +45,17 @@ MarketData ──> Strategy.generate_signals ──> {label: signals}          (
            ──> BacktestEngine.run (event loop)
                  mark-to-market ──> funding ──> drift ──> drawdown overlay ──> trade ──> costs
            ──> BacktestResult ──> metrics, attribution, report
+
+Live (one call per closed bar):
+MarketData[≤ t] ──> same strategies + PortfolioConstructor ──> target decided at t − delay
+                ──> Broker.sync (mark to market, shared mark_to_market) ──> drawdown overlay
+                ──> Broker.execute (PaperBroker: engine cost model) ──> state.json / fills.csv
 ```
+
+The live loop needs no separate signal code. It takes row `−1 − delay` of a target panel
+computed from data up to now, and that row equals what was decided `delay` bars ago only
+because everything upstream is causal. `PaperTrader.replay` checks this end to end against
+`BacktestEngine`.
 
 ## Timing conventions
 
@@ -71,10 +93,11 @@ The identity `net = gross + funding − costs` holds exactly and is asserted in 
 | Strategy | subclass `Strategy`, implement `generate_signals` (and `fit` if it learns) | `@register_strategy` |
 | Cost model | subclass `CostModel.compute` | `build_cost_model` |
 | Data source | subclass `DataSource.fetch_ohlcv/fetch_funding` | `data.loader` |
+| Venue / broker | subclass `live.Broker` (`nav`, `weights`, `last_bar`, `sync`, `execute`) | pass to `PaperTrader(config, broker=...)` |
 
 ## Module dependency order
 
 `utils → config → data → features → alpha → portfolio → analytics.metrics → backtest → ml →
-strategies → research → cli`. `backtest.walk_forward` references strategies only for typing,
+strategies → research → live → cli`. `backtest.walk_forward` references strategies only for typing,
 which keeps the graph acyclic; `tests/test_imports.py` imports each package in a fresh
 interpreter to guard against cycles.

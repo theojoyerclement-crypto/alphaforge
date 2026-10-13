@@ -75,6 +75,25 @@ def git_commit(cwd: str | Path | None = None) -> str | None:
     return out.stdout.strip() or None
 
 
+def git_dirty(cwd: str | Path | None = None) -> bool | None:
+    """Whether tracked files differ from ``HEAD`` (``None`` outside a repository).
+
+    A commit hash alone over-claims reproducibility when the run used uncommitted code.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(out.stdout.strip())
+
+
 def environment_info() -> dict[str, Any]:
     """Python, platform and key package versions."""
     versions: dict[str, str | None] = {}
@@ -83,6 +102,10 @@ def environment_info() -> dict[str, Any]:
             versions[pkg] = metadata.version(pkg)
         except metadata.PackageNotFoundError:
             versions[pkg] = None
+    if versions.get("alphaforge") is None:  # running from source (PYTHONPATH=src)
+        from alphaforge import __version__
+
+        versions["alphaforge"] = f"{__version__} (source)"
     return {
         "python": platform.python_version(),
         "platform": platform.platform(),
@@ -100,6 +123,7 @@ class RunManifest:
     config_hash: str
     data_hash: str | None = None
     git_commit: str | None = None
+    git_dirty: bool | None = None  # True: uncommitted changes to tracked files at run time
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     environment: dict[str, Any] = field(default_factory=environment_info)
 

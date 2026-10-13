@@ -30,6 +30,7 @@ from alphaforge.utils.reproducibility import (
     RunManifest,
     create_run_dir,
     git_commit,
+    git_dirty,
     hash_dataframe,
     hash_object,
     set_global_seed,
@@ -73,7 +74,14 @@ class ExperimentResult:
 
 
 def _strategy_factory(config: ExperimentConfig) -> dict[str, Strategy]:
-    return {spec.label: build_strategy(spec.name, spec.params) for spec in config.strategies}
+    strategies: dict[str, Strategy] = {}
+    for i, spec in enumerate(config.strategies):
+        try:
+            strategies[spec.label] = build_strategy(spec.name, spec.params)
+        except (KeyError, TypeError, ValueError) as exc:
+            message = exc.args[0] if exc.args else str(exc)
+            raise ConfigurationError(f"strategies[{i}] ({spec.label}): {message}") from exc
+    return strategies
 
 
 def run_experiment(
@@ -97,11 +105,12 @@ def run_experiment(
     set_global_seed(config.seed)
     logger.info("Experiment %r (seed=%d)", config.name, config.seed)
 
+    # Build strategies before touching data so a typo fails before any download.
+    strategies = _strategy_factory(config)
     cleaning: list[CleaningReport] = []
     if data is None:
         data, cleaning = load_market_data(config.data, config.cleaning, config.seed)
 
-    strategies = _strategy_factory(config)
     needs_fit = [label for label, s in strategies.items() if s.requires_fit]
     if needs_fit and not config.walk_forward.enabled:
         raise ConfigurationError(
@@ -163,6 +172,7 @@ def _persist(result: ExperimentResult) -> None:
         config_hash=hash_object(cfg_dict),
         data_hash=hash_dataframe(result.data.close),
         git_commit=git_commit(),
+        git_dirty=git_dirty(),
     ).to_json(run_dir / "manifest.json")
     if result.cleaning:
         pd.DataFrame([r.to_dict() for r in result.cleaning]).to_csv(

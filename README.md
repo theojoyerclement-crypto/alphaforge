@@ -3,20 +3,34 @@
 **A quantitative alpha research framework for crypto markets.**
 Data ingestion → causal features → alpha discovery under multiple-testing control → strategy
 families → risk-managed portfolio construction → event-loop backtesting with realistic frictions
-→ walk-forward ML → reporting, all driven by a single, typed configuration file and reproducible
-down to the commit, seed and data hash.
+→ walk-forward ML → paper trading on the same code path → reporting. Everything is driven by a
+single typed configuration file and is reproducible down to the commit, seed and data hash.
 
-🇫🇷 [Version française](README.fr.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Methodology](docs/METHODOLOGY.md)
+🇫🇷 [Version française](README.fr.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Methodology](docs/METHODOLOGY.md) · 🤝 [Contributing](CONTRIBUTING.md)
 
-![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-141%20passing-4f8a3c) ![status](https://img.shields.io/badge/status-research-8064a2)
+![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-161%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
 
 ---
 
+## What an employer should look at (10 minutes)
+
+| Look at | Why it matters | Where |
+|---|---|---|
+| **Run one command** | Tests, a reference backtest and a paper-trading replay, offline, on any OS | `python scripts/smoke_test.py` |
+| **Anti-look-ahead tests** | Future data is scrambled and every feature, strategy and the portfolio constructor must give the same past | `tests/test_features.py`, `tests/test_strategies.py`, `tests/test_live.py` |
+| **Accounting identities** | `net = gross + funding − costs` checked against hand-computed books | `tests/test_backtest.py` |
+| **Real-data results, including the bad ones** | Binance perps, net of fees, spread, impact and funding, compared with buy & hold | [Real data](#5-real-market-binance-usdt-m-perpetuals) |
+| **A significant alpha that loses money** | t = 5.5, Sharpe +1.8 without frictions, −2.9 once costs and latency are charged | [Results §2](#results) |
+| **ML that does not win** | Walk-forward ML loses to a carry rule, and the README says so | [Results §4](#results) |
+| **Backtest ↔ live parity** | The paper loop recomputes decisions bar by bar and matches backtest equity to 1e-10 | `alphaforge paper ... --replay N`, `src/alphaforge/live/` |
+| **Configs** | One YAML file per experiment. Unknown keys are rejected and the error lists the allowed ones | `configs/`, `src/alphaforge/config/schema.py` |
+| **Design rationale** | The choices that matter, written down | [ARCHITECTURE](docs/ARCHITECTURE.md#design-choices-that-matter-to-a-hiring-manager) · [METHODOLOGY](docs/METHODOLOGY.md#design-choices-that-matter-to-a-hiring-manager) |
+
 ## Why this exists
 
-Most retail backtesters answer *"what would this strategy have earned?"* AlphaForge is built to
+Most retail backtesters answer *"what would this strategy have earned?"*. AlphaForge is built to
 answer the question a research desk actually asks: **"is this edge real, and does it survive
-contact with execution?"** Concretely, that means:
+contact with execution?"** In practice, that means:
 
 | Failure mode of naive backtests | How AlphaForge prevents it |
 |---|---|
@@ -24,17 +38,24 @@ contact with execution?"** Concretely, that means:
 | Same-bar execution | Signals at close *t* trade at close *t + delay* (`execution_delay: 1` by default). |
 | Frictionless fills | Fees + half-spread + **square-root market impact** scaled by volatility and ADV; **perpetual funding** charged bar by bar. |
 | Turnover measured on targets | Turnover is measured against **drifted** weights, which is what actually has to be traded. |
+| Unfinished bars | The still-forming exchange candle is dropped at ingestion, so it never gets cached as a final close. |
 | In-sample ML | Strategies that learn are **refused** outside walk-forward; each fold builds fresh models. |
 | Label leakage in CV | **Purged K-fold + embargo** and **combinatorial purged CV** (López de Prado). |
 | Data snooping across many alphas | **Newey-West** IC t-stats, **Benjamini-Hochberg** FDR control, **Deflated Sharpe Ratio**. |
-| Irreproducible results | Every run writes its resolved config, config hash, data hash, git commit, seed and package versions. |
+| Backtest code ≠ live code | The paper trader calls the same strategies, portfolio constructor, cost model and mark-to-market function as the engine, and a test checks that both give the same equity. |
+| Irreproducible results | Every run writes its resolved config, config hash, data hash, git commit (plus a dirty-tree flag), seed and package versions. |
 
-## Results on the reference configs
+## Results
 
-The repository ships with a deterministic synthetic perpetual-futures market (fat tails, GARCH
-volatility, regime switches, staggered listings) that **plants three weak, known edges**:
-time-series trend, 1-bar reversal and funding carry. It doubles as an integration test: a
-research stack that cannot rediscover planted edges, or that "discovers" absent ones, is broken.
+Two kinds of evidence, kept apart on purpose:
+
+* **Synthetic market (sections 1–4).** A deterministic perpetual-futures market (fat tails,
+  GARCH volatility, regime switches, staggered listings) that **plants three weak, known edges**:
+  time-series trend, 1-bar reversal and funding carry. It is an integration test with a known
+  answer: a research stack that cannot rediscover planted edges, or that "discovers" absent ones,
+  is broken.
+* **Real market (section 5).** Binance USDT-margined perpetuals with real funding. This is where
+  you find out what the planted edges were worth.
 
 **1. Alpha research recovers what was planted and rejects what was not**
 (`alphaforge research configs/multi_strategy.yaml`, 12 assets × 2000 daily bars, 15 candidates)
@@ -79,62 +100,129 @@ reversal has already happened. This is the single most common way backtests lie.
 | Funding carry (benchmark) | 0.70 | 54× | simple beats complex here |
 
 These numbers are reported as they came out, without tuning: the ML sleeves do **not** beat a
-simple carry rule on this data, and the framework says so. Re-run them yourself, since every
-number above is reproducible from the configs (`seed` included).
+simple carry rule on this data, and the framework says so.
 
-## Architecture
+### 5. Real market: Binance USDT-M perpetuals
 
-```mermaid
-flowchart LR
-    subgraph Data
-        A[CCXT / Synthetic] --> B[Cleaning + report] --> C[(Parquet store)] --> D[MarketData panels]
-    end
-    D --> E[Feature engine<br/>technical · microstructure · carry]
-    E --> F[Alpha research<br/>IC · NW t · BH · DSR]
-    E --> G[Strategies<br/>momentum · reversion · regime · carry · ML]
-    F --> G
-    G --> H[Portfolio construction<br/>inverse vol · sleeve vol target · ERC allocation<br/>correlation haircut · limits]
-    H --> I[Backtest engine<br/>delay · costs · impact · funding · drawdown control]
-    I --> J[Analytics & HTML report]
-    K[ML layer<br/>labels · purged CV · regimes · meta-labeling] --> G
-    L[YAML config + run manifest] -.-> D & G & H & I
-```
+`configs/binance_perps.yaml` is **unchanged since the initial commit**: it was not tuned on this
+data. Universe: 12 large perps (BTC, ETH, SOL, BNB, XRP, ADA, DOGE, AVAX, LINK, DOT, LTC, ATOM),
+daily bars, real 8-hourly funding, evaluation Jul 2021 – Oct 2026 (data through 2026-10-12),
+default frictions (4 bps fee, 1.5 bps half-spread, square-root impact, 1 bar of latency).
 
-| Package | Responsibility |
-|---|---|
-| `alphaforge.data` | CCXT ingestion (OHLCV + funding, paginated, retried), synthetic market generator, auditable cleaning, Parquet store with hashed metadata, aligned `MarketData` panels |
-| `alphaforge.features` | Registry of 21 causal features: momentum, volatility estimators (Parkinson, Garman-Klass), RSI, efficiency ratio; microstructure proxies (Amihud, Roll, Corwin-Schultz, Kyle λ, close-location); funding and basis carry |
-| `alphaforge.alpha` | 15-alpha library, rank IC and decay, quantile spreads, turnover, Newey-West, PSR/DSR, MinTRL, Benjamini-Hochberg, causal IC-weighted alpha combination |
-| `alphaforge.strategies` | `ts_momentum`, `xs_momentum`, `zscore_reversion`, `st_reversal`, `regime_switching`, `funding_carry`, `alpha_composite`, `ml_directional`, `meta_labeled`, `ml_regime` |
-| `alphaforge.portfolio` | EWMA risk, inverse-vol sizing, ex-ante volatility targeting, ERC risk parity, correlation haircut, position/gross/net limits, drawdown controller, fractional Kelly |
-| `alphaforge.backtest` | Event-loop engine, linear and square-root impact cost models, walk-forward runner, purged & combinatorial purged K-fold |
-| `alphaforge.ml` | Fixed-horizon and triple-barrier labels, pooled LightGBM/sklearn direction model, meta-labeling with bet sizing, GMM and volatility regimes |
-| `alphaforge.analytics` | Sharpe, Sortino, Calmar, profit factor, VaR/CVaR, tail ratio, drawdown episodes, monthly table, plots, self-contained HTML report |
-| `alphaforge.research` | `run_experiment` / `run_alpha_research`: config → results directory with manifest |
+| Net of all costs and funding | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/yr |
+|---|---:|---:|---:|---:|---:|---:|
+| **Portfolio (risk parity, 20% vol target)** | **6.1%** | 18.0% | **0.42** | 0.60 | −27.4% | 121× |
+| Time-series momentum | 5.5% | 15.5% | 0.43 | 0.61 | −22.9% | 38× |
+| Funding carry | 5.1% | 16.7% | 0.38 | 0.53 | −28.8% | 60× |
+| Cross-sectional momentum | 2.1% | 17.0% | 0.21 | 0.29 | −30.7% | 91× |
+| Regime switching | −11.5% | 16.1% | −0.68 | −0.93 | −49.9% | 113× |
+| *Benchmark: BTC perp buy & hold* | *10.0%* | *52.2%* | *0.44* | | *−78.0%* | |
+| *Benchmark: equal-weight long basket* | *−1.0%* | *68.4%* | *0.33* | | *−79.3%* | |
+
+Portfolio by calendar year: 2021 H2 +10.5% · 2022 −17.4% · 2023 +5.0% · 2024 +24.6% ·
+2025 +22.0% · 2026 YTD −6.3%. Annualised PnL attribution: price +12.9%, funding +2.0%,
+**costs −7.4%**. The book is roughly market-neutral (average net exposure −0.01, gross 0.93,
+daily correlation to BTC −0.11).
+
+What this does and does not show:
+
+* **No better risk-adjusted return than holding BTC** (Sharpe 0.42 vs 0.44). The real differences
+  are a drawdown of −27% instead of −78% and close to zero beta.
+* **The synthetic edges were optimistic.** Funding carry drops from Sharpe 2.0 on the synthetic
+  market to 0.38 on real data. Regime switching loses money on both.
+* **Costs take half of the gross edge.** The framework charges them, which is the point.
+* On real data the alpha leaderboard keeps funding-based signals (`funding_reversal_90`
+  t = 3.4, `funding_carry_21` t = 2.0, both BH-significant) and rejects 60-day momentum (t = 0.04).
+  `low_vol_60` has the largest rank IC (t = 8) but a **negative** long-short Sharpe. The IC
+  weights every day equally, while dollar PnL is dominated by the few high-dispersion days when
+  volatile alts rally. A rank IC is not a PnL.
+* **Caveats.** The universe consists of today's survivors, chosen with hindsight, which is
+  survivorship bias in our favour. It covers one venue, 12 assets and a single path, with no
+  capacity analysis. Treat this as a sanity check of the pipeline on real data, not as a track
+  record.
 
 ## Quickstart
 
-```bash
-git clone <your-fork-url> alphaforge && cd alphaforge
-python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -e ".[all]"                               # or: pip install -r requirements-dev.txt
+macOS / Linux:
 
-pytest                                                # 141 tests, ~1 min
+```bash
+git clone https://github.com/theojoyerclement-crypto/alphaforge.git alphaforge && cd alphaforge
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[all]"                   # or: pip install -r requirements-dev.txt
+python scripts/smoke_test.py              # tests + reference backtest + paper replay
+```
+
+Windows (PowerShell). Use `python`, not `python3`, which on Windows is the Microsoft Store stub:
+
+```powershell
+git clone https://github.com/theojoyerclement-crypto/alphaforge.git alphaforge; cd alphaforge
+python -m venv .venv; .venv\Scripts\Activate.ps1    # cmd.exe: .venv\Scripts\activate.bat
+pip install -e ".[all]"
+python scripts/smoke_test.py
+```
+
+`scripts/smoke_test.py` runs the test suite, then `configs/multi_strategy.yaml`, then a 10-bar
+paper-trading replay. It prints the path of the HTML report (`runs/<timestamp>_multi_strategy/report.html`)
+and exits non-zero on any failure. Use `--quick` to skip the tests. The individual commands:
+
+```bash
+pytest                                                # 161 tests, ~2 min
 alphaforge list                                       # strategies, features, alphas
 alphaforge research configs/multi_strategy.yaml       # alpha leaderboard
 alphaforge run configs/multi_strategy.yaml            # backtest + HTML report in runs/
 alphaforge run configs/ml_walk_forward.yaml           # walk-forward ML book
 alphaforge run configs/multi_strategy.yaml --set portfolio.target_vol=0.15 --set costs.fee_bps=2
+alphaforge paper configs/multi_strategy.yaml --replay 20   # paper loop vs backtest parity
 ```
 
-Real data (Binance USDT-M perpetuals, funding included):
+Without installing the package, prefix with `PYTHONPATH=src python -m alphaforge ...`
+(PowerShell: `$env:PYTHONPATH="src"; python -m alphaforge ...`).
+
+### Real data (run it yourself)
+
+Needs `pip install ccxt` (included in `.[all]`) and network access to Binance's public endpoints.
+No API key is required: only public market data is downloaded.
 
 ```bash
-alphaforge fetch --exchange binance --symbols BTC/USDT:USDT ETH/USDT:USDT SOL/USDT:USDT --timeframe 1d --start 2021-01-01
-alphaforge run configs/binance_perps.yaml
+alphaforge fetch --exchange binance --timeframe 1d --start 2021-01-01 --symbols \
+  BTC/USDT:USDT ETH/USDT:USDT SOL/USDT:USDT BNB/USDT:USDT XRP/USDT:USDT ADA/USDT:USDT \
+  DOGE/USDT:USDT AVAX/USDT:USDT LINK/USDT:USDT DOT/USDT:USDT LTC/USDT:USDT ATOM/USDT:USDT
+alphaforge run configs/binance_perps.yaml --set data.end=2026-10-12      # the table above
+alphaforge research configs/binance_perps.yaml --set data.end=2026-10-12
+alphaforge run configs/binance_perps.yaml                                # up to the last closed bar
 ```
 
-Python API:
+Expect about 1 minute of downloading. `data/store/ccxt_binance_swap/<symbol>/` then holds
+`1d.ohlcv.parquet` and `events.funding.parquet`, each with a JSON sidecar recording the row
+count, date range and content hash. Each run directory `runs/<timestamp>_binance_perps/`
+contains `report.html`, `metrics.csv`, `pnl_attribution.csv`, `cleaning_report.csv` and a
+`manifest.json` with the data hash. The run reads the local store after the first download.
+Add `--set data.source=parquet` to guarantee that it stays offline. Binance data is accessible
+from most, but not all, jurisdictions.
+
+### Paper trading
+
+```bash
+alphaforge paper configs/multi_strategy.yaml --replay 20    # offline demo + parity check
+alphaforge paper configs/binance_perps.yaml                 # one live step on fresh data
+```
+
+`PaperTrader` (`src/alphaforge/live/`) runs the backtest's own strategies, `PortfolioConstructor`
+and drawdown overlay on data up to the latest **closed** bar. It then trades the target decided
+`execution_delay` bars ago through a `Broker`.
+
+* `--replay N` walks the last N bars one at a time. At each bar it sees only the past, as it
+  would live, and it fails if the resulting NAV differs from `BacktestEngine` over the same bars.
+* The default mode is one step per call, meant to be scheduled once per bar (cron or Task
+  Scheduler). It refreshes the data, marks the account to market, trades, and appends to
+  `paper/<experiment>/{state.json, fills.csv, equity.csv}`. A second call on the same bar does
+  nothing.
+* `PaperBroker` fills at the close with the backtest's cost model. A real venue adapter would
+  implement the same three-method `Broker` interface (`sync`, `execute`, `nav/weights`).
+  Nothing upstream would change. Strategies that learn are not supported yet, because they
+  need persisted, versioned models.
+
+### Python API
 
 ```python
 from alphaforge.config import load_config
@@ -149,9 +237,43 @@ result.targets.allocation.tail()           # time-varying risk-parity weights
 Worked examples live in [`examples/`](examples): quickstart, alpha research, ML with purged CV and
 meta-labeling, and writing your own strategy in about 20 lines.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Data
+        A[CCXT / Synthetic] --> B[Cleaning + report] --> C[(Parquet store)] --> D[MarketData panels]
+    end
+    D --> E[Feature engine<br/>technical · microstructure · carry]
+    E --> F[Alpha research<br/>IC · NW t · BH · DSR]
+    E --> G[Strategies<br/>momentum · reversion · regime · carry · ML]
+    F --> G
+    G --> H[Portfolio construction<br/>inverse vol · sleeve vol target · ERC allocation<br/>correlation haircut · limits]
+    H --> I[Backtest engine<br/>delay · costs · impact · funding · drawdown control]
+    H --> P[Paper trader<br/>same code, one bar at a time · Broker adapter]
+    I --> J[Analytics & HTML report]
+    K[ML layer<br/>labels · purged CV · regimes · meta-labeling] --> G
+    L[YAML config + run manifest] -.-> D & G & H & I
+```
+
+| Package | Responsibility |
+|---|---|
+| `alphaforge.data` | CCXT ingestion (OHLCV + funding, paginated, retried, unfinished bar dropped), synthetic market generator, auditable cleaning, Parquet store with hashed metadata, aligned `MarketData` panels |
+| `alphaforge.features` | Registry of 21 causal features: momentum, volatility estimators (Parkinson, Garman-Klass), RSI, efficiency ratio; microstructure proxies (Amihud, Roll, Corwin-Schultz, Kyle λ, close-location); funding and basis carry |
+| `alphaforge.alpha` | 15-alpha library, rank IC and decay, quantile spreads, turnover, Newey-West, PSR/DSR, MinTRL, Benjamini-Hochberg, causal IC-weighted alpha combination |
+| `alphaforge.strategies` | `ts_momentum`, `xs_momentum`, `zscore_reversion`, `st_reversal`, `regime_switching`, `funding_carry`, `alpha_composite`, `ml_directional`, `meta_labeled`, `ml_regime` |
+| `alphaforge.portfolio` | EWMA risk, inverse-vol sizing, ex-ante volatility targeting, ERC risk parity, correlation haircut, position/gross/net limits, drawdown controller, fractional Kelly |
+| `alphaforge.backtest` | Event-loop engine, linear and square-root impact cost models, walk-forward runner, purged & combinatorial purged K-fold |
+| `alphaforge.ml` | Fixed-horizon and triple-barrier labels, pooled LightGBM/sklearn direction model, meta-labeling with bet sizing, GMM and volatility regimes |
+| `alphaforge.analytics` | Sharpe, Sortino, Calmar, profit factor, VaR/CVaR, tail ratio, drawdown episodes, monthly table, plots, self-contained HTML report |
+| `alphaforge.research` | `run_experiment` / `run_alpha_research`: config → results directory with manifest |
+| `alphaforge.live` | `PaperTrader`, the `Broker` interface and `PaperBroker`: the research code driving an account bar by bar, with state that survives restarts |
+
 ## Configuration
 
-One YAML file describes an experiment end to end. Unknown keys are rejected, so typos fail loudly.
+One YAML file describes an experiment end to end. Unknown keys are rejected, so typos fail loudly
+and the error message lists the valid keys. Strategy names and parameters are checked before any
+data is downloaded.
 
 ```yaml
 name: multi_strategy
@@ -164,6 +286,12 @@ risk:      {max_drawdown: 0.30, drawdown_soft_limit: 0.15, cooldown_bars: 20}
 costs:     {model: sqrt_impact, fee_bps: 4.0, half_spread_bps: 1.5, impact_coefficient: 0.1}
 backtest:  {execution_delay: 1, apply_funding: true, start: "2019-07-01"}
 walk_forward: {enabled: false, train_bars: 750, test_bars: 120, embargo_bars: 10}
+```
+
+```text
+$ alphaforge run my.yaml
+error: my.yaml: 1 invalid setting(s)
+  - portfolio.target_volatility: unknown key (allowed: vol_halflife, sleeve_target_vol, allocation, ..., target_vol, ...)
 ```
 
 Each run writes `runs/<timestamp>_<name>/` containing `report.html`, `metrics.csv/json`,
@@ -189,28 +317,35 @@ class FundingSqueeze(Strategy):
         return self.finalize(((funding < 0) & (trend > 0)) * 1.0, data)
 ```
 
-It is now usable from YAML (`- name: funding_squeeze`) and is automatically picked up by the
-causality and bounds tests. New features use `@register_feature` the same way.
+The strategy is now usable from YAML (`- name: funding_squeeze`), and the causality and bounds
+tests pick it up automatically. New features use `@register_feature` the same way. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project layout
 
+The repository and the Python package are both called `alphaforge`. A local checkout may live
+in a folder with another name; that has no effect.
+
 ```
-src/alphaforge/   data · features · alpha · strategies · portfolio · backtest · ml · analytics · research · config · utils
+src/alphaforge/   data · features · alpha · strategies · portfolio · backtest · ml · analytics · research · live · config · utils
 configs/          multi_strategy · ml_walk_forward · binance_perps · cost_stress
 examples/         01_quickstart · 02_alpha_research · 03_ml_meta_labeling · 04_custom_strategy
-tests/            141 tests: causality properties, hand-computed accounting, CV leakage, end-to-end runs
+scripts/          smoke_test.py (one-command check)
+tests/            161 tests: causality properties, hand-computed accounting, CV leakage, paper/backtest parity, end-to-end runs
 docs/             ARCHITECTURE.md · METHODOLOGY.md
 ```
 
 ## Roadmap
 
+- Live venue adapter (CCXT orders, balance reconciliation, kill switch) behind the existing `Broker` interface
+- Persisted, versioned models so walk-forward ML strategies can be paper-traded
+- Point-in-time universe selection (survivorship-free listings and delistings), which the real-data results above lack
+- Capacity analysis: Sharpe as a function of AUM under the impact model
 - Order-book data (L2 snapshots) for true microstructure features and spread-aware execution
 - Hierarchical risk parity and covariance shrinkage (Ledoit-Wolf) in allocation
-- Capacity analysis: Sharpe as a function of AUM under the impact model
-- Live paper-trading adapter sharing the strategy and portfolio code paths
-- Point-in-time universe selection (survivorship-free listings and delistings)
 
-## Disclaimer
+## License and disclaimer
 
-Research software. Nothing here is investment advice. Synthetic-data results demonstrate the
-methodology, not a live track record.
+[MIT](LICENSE). This is research software and nothing here is investment advice. Synthetic-data
+results demonstrate the methodology. The real-data results are a single, survivorship-biased
+backtest, not a track record.

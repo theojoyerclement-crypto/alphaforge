@@ -105,6 +105,14 @@ class CCXTSource(DataSource):
         frame.index.name = "timestamp"
         frame = frame[~frame.index.duplicated(keep="last")].sort_index()
         frame = frame.loc[: pd.Timestamp(end_ms, unit="ms", tz="UTC")]
+        # The exchange returns the still-forming bar; its "close" is a mid-bar price that would
+        # be cached as if final. Keep only bars whose interval has fully elapsed.
+        complete = frame.index + pd.Timedelta(milliseconds=step) <= pd.Timestamp.now(tz="UTC")
+        if not complete.all():
+            logger.info(
+                "Dropping %d still-forming %s bar(s) for %s", (~complete).sum(), timeframe, symbol
+            )
+        frame = frame[complete]
         logger.info("Fetched %d %s bars for %s", len(frame), timeframe, symbol)
         return frame.astype(float)
 

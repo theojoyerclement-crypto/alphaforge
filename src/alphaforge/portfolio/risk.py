@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -62,6 +63,17 @@ class DrawdownController:
     @property
     def enabled(self) -> bool:
         return self.max_drawdown is not None or self.soft_limit is not None
+
+    def state_dict(self) -> dict[str, float | int | None]:
+        """Path-dependent state, so a paper session can stop and resume between bars."""
+        return {"hwm": self._hwm, "cooldown": self._cooldown, "breaches": self.breaches}
+
+    def load_state_dict(self, state: Mapping[str, float | int | None]) -> None:
+        """Restore what :meth:`state_dict` returned."""
+        hwm = state.get("hwm")
+        self._hwm = None if hwm is None else float(hwm)
+        self._cooldown = int(state.get("cooldown") or 0)
+        self.breaches = int(state.get("breaches") or 0)
 
     def update(self, equity: float) -> float:
         """Feed the latest equity; return the exposure multiplier in ``[0, 1]``."""

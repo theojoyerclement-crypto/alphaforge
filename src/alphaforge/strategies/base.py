@@ -14,6 +14,7 @@ scored on its own training data.
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from typing import Any, ClassVar, TypeVar
@@ -77,7 +78,16 @@ def build_strategy(name: str, params: Mapping[str, Any] | None = None) -> Strate
         cls = _REGISTRY[name]
     except KeyError as exc:
         raise KeyError(f"Unknown strategy {name!r}; available: {sorted(_REGISTRY)}") from exc
-    return cls(**dict(params or {}))
+    kwargs = dict(params or {})
+    signature = inspect.signature(cls)
+    if not any(p.kind is p.VAR_KEYWORD for p in signature.parameters.values()):
+        unknown = sorted(set(kwargs) - set(signature.parameters))
+        if unknown:
+            raise TypeError(
+                f"Strategy {name!r} has no parameter(s) {unknown}; "
+                f"accepted: {list(signature.parameters)}"
+            )
+    return cls(**kwargs)
 
 
 StrategyFactory = Callable[[], dict[str, Strategy]]

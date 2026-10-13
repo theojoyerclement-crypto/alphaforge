@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,9 @@ def test_walk_forward_experiment_writes_report(tmp_path: Path) -> None:
     assert run_dir is not None
     for name in ("report.html", "manifest.json", "config.json", "metrics.csv", "summary.md"):
         assert (run_dir / name).exists(), name
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert {"git_commit", "git_dirty", "config_hash", "data_hash", "seed"} <= set(manifest)
+    assert manifest["environment"]["packages"]["alphaforge"] is not None
     # out-of-sample only: first traded bar is after the first training window + embargo
     assert result.portfolio.returns.index[0] == result.data.index[305]
 
@@ -83,3 +87,46 @@ def test_cli_list(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["list"]) == 0
     out = capsys.readouterr().out
     assert "ts_momentum" in out and "funding_rate" in out and "mom_60" in out
+
+
+def test_config_errors_are_readable(tmp_path: Path) -> None:
+    import yaml
+
+    from alphaforge.config import ConfigError
+
+    with pytest.raises(ConfigError, match="not found"):
+        load_config(tmp_path / "missing.yaml")
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("name: x\ndata: {symbols: [A, B]\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="not valid YAML"):
+        load_config(broken)
+    typo = tmp_path / "typo.yaml"
+    typo.write_text(yaml.safe_dump({**SMALL, "portfolio": {"target_volatility": 0.2}}), "utf-8")
+    with pytest.raises(
+        ConfigError, match=r"portfolio\.target_volatility: unknown key .*target_vol"
+    ):
+        load_config(typo)
+
+
+def test_strategy_mistakes_fail_before_loading_data() -> None:
+    bad_name = ExperimentConfig.model_validate({**SMALL, "strategies": [{"name": "ts_momentun"}]})
+    with pytest.raises(ConfigurationError, match=r"strategies\[0\].*available"):
+        run_experiment(bad_name)
+    bad_param = ExperimentConfig.model_validate(
+        {**SMALL, "strategies": [{"name": "ts_momentum", "params": {"lookback": 5}}]}
+    )
+    with pytest.raises(ConfigurationError, match=r"accepted: .*lookbacks"):
+        run_experiment(bad_param)
+
+
+def test_cli_prints_config_errors_without_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["run", str(tmp_path / "missing.yaml")]) == 2
+    assert capsys.readouterr().err.startswith("error: Config file not found")
+
+
+def test_unquoted_yaml_dates_are_accepted() -> None:
+    raw = apply_overrides(SMALL, ["data.end=2020-06-30", "backtest.start=2020-03-01"])
+    config = ExperimentConfig.model_validate(raw)
+    assert config.data.end == "2020-06-30" and config.backtest.start == "2020-03-01"

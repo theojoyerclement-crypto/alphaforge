@@ -30,6 +30,27 @@ from alphaforge.utils.time import to_utc
 logger = get_logger(__name__)
 
 
+def mark_to_market(
+    weights: np.ndarray, returns: np.ndarray, funding: np.ndarray
+) -> tuple[float, float, float, np.ndarray]:
+    """Apply one bar of price moves and funding to a book of NAV weights.
+
+    Shared by the backtest loop and :class:`alphaforge.live.PaperBroker` so that simulated
+    and paper accounts cannot drift apart through duplicated accounting.
+
+    Returns:
+        ``(price_pnl, funding_pnl, growth, drifted_weights)`` where ``growth`` is the NAV
+        multiplier of the bar. A non-positive ``growth`` means the book was wiped out and the
+        drifted weights are zero.
+    """
+    price_pnl = float(weights @ returns)
+    funding_pnl = -float(weights @ funding)
+    growth = 1.0 + price_pnl + funding_pnl
+    if growth <= 0:
+        return price_pnl, funding_pnl, growth, np.zeros_like(weights)
+    return price_pnl, funding_pnl, growth, weights * (1.0 + returns) / growth
+
+
 class BacktestEngine:
     """Simulates a target-weight portfolio with realistic frictions.
 
@@ -84,6 +105,20 @@ class BacktestEngine:
             vol_halflife=costs.vol_halflife,
         )
 
+    def cost_inputs(self, data: MarketData) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Per-bar volatility and average dollar volume fed to the cost model.
+
+        Both are trailing estimators (row ``t`` uses bars <= ``t``), so a live caller that
+        only has data up to now gets exactly the values the backtest used at that bar.
+        Missing vol falls back to the cross-sectional median, then to 2% per bar.
+        """
+        vol = data.returns().ewm(halflife=self.vol_halflife, min_periods=5).std()
+        vol = vol.ffill()
+        # Row-wise broadcast; ``vol.T.fillna(median).T`` gives the same values ~300x slower.
+        vol = vol.where(vol.notna(), vol.median(axis=1), axis=0).fillna(0.02)
+        adv = data.dollar_volume().rolling(self.adv_lookback, min_periods=1).mean()
+        return vol, adv
+
     def run(
         self,
         target_weights: pd.DataFrame,
@@ -112,10 +147,8 @@ class BacktestEngine:
             if self.apply_funding and data.funding is not None
             else np.zeros_like(R)
         )
-        vol = data.returns().ewm(halflife=self.vol_halflife, min_periods=5).std()
-        vol = vol.ffill()
-        vol = vol.T.fillna(vol.median(axis=1)).T.fillna(0.02).to_numpy()
-        adv = data.dollar_volume().rolling(self.adv_lookback, min_periods=1).mean().to_numpy()
+        vol_frame, adv_frame = self.cost_inputs(data)
+        vol, adv = vol_frame.to_numpy(), adv_frame.to_numpy()
 
         first = 0 if start is None else int(index.searchsorted(to_utc(start)))
         n_bars, n_assets = len(index) - first, len(symbols)
@@ -138,16 +171,11 @@ class BacktestEngine:
         nav = self.initial_capital
         w = np.zeros(n_assets)
         for i, t in enumerate(range(first, len(index))):
-            price_pnl = float(w @ R[t])
-            funding_pnl = -float(w @ F[t])
-            bar_ret = price_pnl + funding_pnl
-            growth = 1.0 + bar_ret
+            price_pnl, funding_pnl, growth, w_drift = mark_to_market(w, R[t], F[t])
             if growth <= 0:
                 logger.error("%s: NAV wiped out at %s", name, index[t])
-                w_drift = np.zeros(n_assets)
                 nav_pre = 0.0
             else:
-                w_drift = w * (1.0 + R[t]) / growth
                 nav_pre = nav * growth
 
             scale = controller.update(nav_pre) if controller is not None and nav_pre > 0 else 1.0

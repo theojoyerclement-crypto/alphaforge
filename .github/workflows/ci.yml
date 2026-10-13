@@ -21,10 +21,12 @@ jobs:
       - name: Install
         run: pip install -e ".[ml,dev]"
       - name: Lint
-        run: ruff check src tests examples && ruff format --check src tests examples
+        run: ruff check src tests examples scripts && ruff format --check src tests examples scripts
       - name: Type-check
         run: mypy
       - name: Tests
         run: pytest --cov=alphaforge --cov-report=term-missing
       - name: Smoke-run reference config
         run: alphaforge run configs/multi_strategy.yaml --no-save
+      - name: Paper-trading parity (live code path reproduces the backtest)
+        run: alphaforge paper configs/multi_strategy.yaml --replay 5

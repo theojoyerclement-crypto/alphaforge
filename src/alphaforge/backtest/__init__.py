@@ -7,7 +7,7 @@ from alphaforge.backtest.costs import (
     build_cost_model,
 )
 from alphaforge.backtest.cv import CombinatorialPurgedKFold, PurgedKFold
-from alphaforge.backtest.engine import BacktestEngine
+from alphaforge.backtest.engine import BacktestEngine, mark_to_market
 from alphaforge.backtest.results import BacktestResult
 from alphaforge.backtest.walk_forward import (
     WalkForwardFold,
@@ -29,4 +29,5 @@ __all__ = [
     "WalkForwardRunner",
     "build_cost_model",
     "make_walk_forward_folds",
+    "mark_to_market",
 ]

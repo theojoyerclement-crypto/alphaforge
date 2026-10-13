@@ -105,3 +105,32 @@ def test_parquet_store_roundtrip_and_merge(tmp_path) -> None:
     pd.testing.assert_frame_equal(loaded, frame, check_freq=False)
     assert store.path("test", "BTC/USDT:USDT", "1h").with_suffix(".json").exists()
     assert store.list_symbols("test") == ["BTC-USDT_USDT"]
+
+
+class _FakeExchange:
+    """Minimal CCXT stand-in: hourly bars up to and including the still-forming one."""
+
+    def __init__(self, n_bars: int) -> None:
+        self.has = {"fetchFundingRateHistory": False}
+        now = pd.Timestamp.now(tz="UTC").floor("1h")
+        opens = pd.date_range(end=now, periods=n_bars, freq="1h")
+        self.rows = [[int(t.timestamp() * 1000), 1.0, 1.1, 0.9, 1.0, 5.0] for t in opens]
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str, since: int, limit: int) -> list[list[float]]:
+        return [r for r in self.rows if r[0] >= since][:limit]
+
+
+def test_ccxt_source_paginates_and_drops_the_forming_bar() -> None:
+    from alphaforge.data.sources.ccxt_source import CCXTSource
+
+    source = object.__new__(CCXTSource)  # skip __init__: no ccxt dependency or network
+    source.exchange = _FakeExchange(n_bars=25)
+    source.name, source.max_retries, source.page_limit = "fake", 1, 7
+
+    frame = source.fetch_ohlcv(
+        "BTC/USDT:USDT", "1h", start=pd.Timestamp.now(tz="UTC") - pd.Timedelta("2D")
+    )
+    assert len(frame) == 24, "the last, still-open bar must not be stored as if it were final"
+    assert frame.index.is_unique and frame.index.is_monotonic_increasing
+    assert frame.index[-1] + pd.Timedelta("1h") <= pd.Timestamp.now(tz="UTC")
+    assert source.fetch_funding("BTC/USDT:USDT") is None

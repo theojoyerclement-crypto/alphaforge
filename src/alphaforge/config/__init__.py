@@ -1,6 +1,6 @@
 """Typed, validated experiment configuration (YAML/JSON -> pydantic models)."""
 
-from alphaforge.config.loader import apply_overrides, config_to_dict, load_config
+from alphaforge.config.loader import ConfigError, apply_overrides, config_to_dict, load_config
 from alphaforge.config.schema import (
     BacktestConfig,
     CleaningConfig,
@@ -19,6 +19,7 @@ from alphaforge.config.schema import (
 __all__ = [
     "BacktestConfig",
     "CleaningConfig",
+    "ConfigError",
     "CostConfig",
     "DataConfig",
     "ExperimentConfig",

@@ -6,11 +6,20 @@ Every tunable of an experiment lives here, validated by pydantic. Unknown keys a
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from datetime import date
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from alphaforge.utils.time import timeframe_to_freq
+
+
+def _date_to_str(value: object) -> object:
+    # YAML turns an unquoted 2021-01-01 (in a file or a --set override) into a date object.
+    return value.isoformat() if isinstance(value, date) else value
+
+
+DateStr = Annotated[str, BeforeValidator(_date_to_str)]
 
 
 class _Model(BaseModel):
@@ -21,7 +30,7 @@ class SyntheticConfig(_Model):
     """Parameters of the synthetic crypto market generator (tests, demos, method validation)."""
 
     n_bars: int = Field(1500, ge=100)
-    start: str = "2020-01-01"
+    start: DateStr = "2020-01-01"
     annual_vol: float = Field(0.65, gt=0)
     annual_drift: float = 0.05
     factor_share: float = Field(0.55, ge=0, le=1, description="Variance share of the market factor")
@@ -41,8 +50,8 @@ class DataConfig(_Model):
     market_type: Literal["spot", "swap"] = "swap"
     symbols: list[str] = Field(min_length=1)
     timeframe: str = "1d"
-    start: str | None = None
-    end: str | None = None
+    start: DateStr | None = None
+    end: DateStr | None = None
     storage_dir: str = "data/store"
     include_funding: bool = True
     use_cache: bool = True
@@ -128,7 +137,7 @@ class BacktestConfig(_Model):
         1, ge=0, description="Bars between signal (close t) and execution (close t+delay)"
     )
     apply_funding: bool = True
-    start: str | None = Field(None, description="Evaluation start (warm-up excluded)")
+    start: DateStr | None = Field(None, description="Evaluation start (warm-up excluded)")
 
 
 class WalkForwardConfig(_Model):

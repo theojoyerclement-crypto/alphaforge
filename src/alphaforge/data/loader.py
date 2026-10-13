@@ -54,6 +54,13 @@ def _load_exchange(
                     store.write(
                         events.to_frame("funding_rate"), source_name, symbol, "events", "funding"
                     )
+        if not store.exists(source_name, symbol, cfg.timeframe):
+            raise FileNotFoundError(
+                f"No stored {cfg.timeframe} data for {symbol} under {store.root / source_name}. "
+                f"Download it first (alphaforge fetch --exchange {cfg.exchange} --market-type "
+                f"{cfg.market_type} --symbols {' '.join(cfg.symbols)} --timeframe "
+                f"{cfg.timeframe} --store {cfg.storage_dir}) or set data.source: ccxt"
+            )
         frames[symbol] = store.read(
             source_name, symbol, cfg.timeframe, start=cfg.start, end=cfg.end
         )

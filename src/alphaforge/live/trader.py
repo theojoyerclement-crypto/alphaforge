@@ -1,0 +1,158 @@
+"""Paper-trading loop that runs the backtest's decision code, one bar at a time.
+
+``PaperTrader.step(data)`` is what a scheduler would call after each bar closes:
+
+1. ``broker.sync``: mark the account to the new bar(s).
+2. Drawdown overlay on the account's own NAV (same controller as the backtest).
+3. Signals from the configured strategies and targets from :class:`PortfolioConstructor`,
+   built from data up to the current close only.
+4. ``broker.execute`` the target decided ``execution_delay`` bars ago.
+
+Step 4 takes row ``-1 - delay`` of a target panel computed *now*. That equals what was
+decided at that bar only because every strategy and the portfolio constructor are causal;
+:meth:`PaperTrader.replay` checks it end to end by reproducing the backtest's equity.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from alphaforge.backtest.engine import BacktestEngine
+from alphaforge.config.schema import ExperimentConfig
+from alphaforge.data.market_data import MarketData
+from alphaforge.live.broker import AccountState, Broker, PaperBroker
+from alphaforge.portfolio.construction import PortfolioConstructor
+from alphaforge.research.experiment import ConfigurationError
+from alphaforge.strategies import Strategy, build_strategy
+from alphaforge.utils.logging import get_logger
+from alphaforge.utils.time import to_utc
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class StepReport:
+    """Outcome of one :meth:`PaperTrader.step`."""
+
+    bar: pd.Timestamp
+    nav_before: float  # after marking to market, before trading
+    nav: float  # after trading costs
+    risk_scale: float
+    target: pd.Series
+    fills: pd.DataFrame
+    skipped: bool = False  # the bar had already been processed
+
+
+class PaperTrader:
+    """Drive a :class:`Broker` with the same strategies and portfolio code as the backtest.
+
+    Args:
+        config: The experiment config the backtest used. Strategies that learn
+            (``requires_fit``) are refused: paper trading them needs persisted, versioned
+            models, which is out of scope for this minimal loop.
+        broker: Execution adapter; defaults to a fresh :class:`PaperBroker`.
+    """
+
+    def __init__(self, config: ExperimentConfig, broker: Broker | None = None) -> None:
+        self.config = config
+        self.strategies: dict[str, Strategy] = {
+            spec.label: build_strategy(spec.name, spec.params) for spec in config.strategies
+        }
+        needs_fit = [label for label, s in self.strategies.items() if s.requires_fit]
+        if needs_fit:
+            raise ConfigurationError(
+                f"Strategies {needs_fit} must be fitted; paper trading supports rule-based "
+                "strategies only (persisted models are on the roadmap)"
+            )
+        self.constructor = PortfolioConstructor(config.portfolio)
+        self.engine = BacktestEngine.from_config(config.backtest, config.costs, config.risk)
+        self.controller = self.engine.drawdown_controller
+        self.delay = config.backtest.execution_delay
+        self.broker: Broker = broker or PaperBroker(self.engine)
+
+    def decide(self, data: MarketData) -> pd.Series:
+        """Target weights to trade at the last bar: the row decided ``delay`` bars ago."""
+        signals = {label: s.generate_signals(data) for label, s in self.strategies.items()}
+        weights = self.constructor.build(signals, data).weights
+        if len(weights) <= self.delay:
+            return pd.Series(0.0, index=data.close.columns)
+        return weights.iloc[-1 - self.delay]
+
+    def step(self, data: MarketData) -> StepReport:
+        """Process the latest bar of ``data`` (idempotent if it was already processed)."""
+        bar = data.index[-1]
+        broker = self.broker
+        if broker.last_bar is not None and broker.last_bar >= bar:
+            logger.info("Bar %s already processed; nothing to do", bar)
+            empty = pd.Series(dtype=float)
+            return StepReport(bar, broker.nav, broker.nav, 1.0, empty, pd.DataFrame(), True)
+
+        broker.sync(data)
+        nav_before = broker.nav
+        controller = self.controller
+        scale = controller.update(nav_before) if controller is not None and nav_before > 0 else 1.0
+        target = self.decide(data) * scale
+        fills = broker.execute(target, data)
+        return StepReport(bar, nav_before, broker.nav, scale, target, fills)
+
+    def replay(self, data: MarketData, start: str | pd.Timestamp) -> pd.DataFrame:
+        """Step through every bar from ``start``, each time seeing only data up to that bar.
+
+        Returns one row per bar (NAV before/after trading, risk scale, turnover). Fed the
+        same config, this must match :meth:`BacktestEngine.run` from ``start``.
+        """
+        first = int(data.index.searchsorted(to_utc(start)))
+        if first >= data.n_bars:
+            raise ValueError("start is after the last bar")
+        rows = []
+        for stop in range(first + 1, data.n_bars + 1):
+            report = self.step(data.iloc(0, stop))
+            turnover = float(report.fills["trade_weight"].abs().sum()) if len(report.fills) else 0.0
+            rows.append(
+                {
+                    "bar": report.bar,
+                    "nav_before": report.nav_before,
+                    "nav": report.nav,
+                    "risk_scale": report.risk_scale,
+                    "turnover": turnover,
+                }
+            )
+        return pd.DataFrame(rows).set_index("bar")
+
+    # -- persistence -------------------------------------------------------------------
+
+    def save_state(self, path: str | Path) -> None:
+        """Write the account and risk-overlay state so the next run resumes from it."""
+        if not isinstance(self.broker, PaperBroker):
+            raise TypeError("Only PaperBroker state is persisted locally")
+        payload: dict[str, Any] = {
+            "experiment": self.config.name,
+            "account": self.broker.state.to_dict(),
+            "drawdown_controller": self.controller.state_dict() if self.controller else None,
+        }
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    @classmethod
+    def from_state(cls, config: ExperimentConfig, path: str | Path) -> PaperTrader:
+        """Resume a paper session; a missing file starts a fresh account."""
+        trader = cls(config)
+        source = Path(path)
+        if not source.exists():
+            return trader
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        if payload.get("experiment") != config.name:
+            raise ValueError(
+                f"{source} belongs to experiment {payload.get('experiment')!r}, "
+                f"not {config.name!r}; use another --state-dir"
+            )
+        trader.broker = PaperBroker(trader.engine, AccountState.from_dict(payload["account"]))
+        if trader.controller is not None and payload.get("drawdown_controller"):
+            trader.controller.load_state_dict(payload["drawdown_controller"])
+        return trader

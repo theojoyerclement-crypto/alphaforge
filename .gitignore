@@ -12,14 +12,30 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
 .ipynb_checkpoints/
 
 # Research artefacts (reproducible from configs; never commit)
-data/store/
+data/*
+!data/.gitkeep
 runs/*
 !runs/.gitkeep
+paper/
+*.parquet
+*.log
 
-# Local tooling
-.token-optimizer-audit-*/
+# Secrets: exchange API keys never belong in the repo (CCXT downloads here are public endpoints)
 .env
+.env.*
+*.pem
+*.key
+secrets.*
+api_keys.*
+
+# Editors / OS / local tooling
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.token-optimizer-audit-*/
