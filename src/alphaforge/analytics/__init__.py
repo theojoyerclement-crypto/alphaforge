@@ -5,6 +5,7 @@ from its submodules on demand.
 """
 
 from alphaforge.analytics.drawdown import drawdown_table
+from alphaforge.analytics.inference import SharpeInterval, sharpe_difference, sharpe_interval
 from alphaforge.analytics.metrics import (
     PerformanceMetrics,
     annualized_volatility,
@@ -28,6 +29,7 @@ from alphaforge.analytics.metrics import (
 
 __all__ = [
     "PerformanceMetrics",
+    "SharpeInterval",
     "annualized_volatility",
     "cagr",
     "calmar_ratio",
@@ -42,6 +44,8 @@ __all__ = [
     "monthly_returns",
     "profit_factor",
     "rolling_sharpe",
+    "sharpe_difference",
+    "sharpe_interval",
     "sharpe_ratio",
     "sortino_ratio",
     "tail_ratio",

@@ -8,7 +8,7 @@ single typed configuration file and is reproducible down to the commit, seed and
 
 🇫🇷 [Version française](README.fr.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Methodology](docs/METHODOLOGY.md) · 🤝 [Contributing](CONTRIBUTING.md)
 
-[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-190%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
+[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-195%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
 
 ---
 
@@ -22,6 +22,7 @@ single typed configuration file and is reproducible down to the commit, seed and
 | **Real-data results, including the bad ones** | Binance perps, net of fees, spread, impact and funding, compared with buy & hold | [Real data](#5-real-market-binance-usdt-m-perpetuals) |
 | **A significant alpha that loses money** | t = 5.5, Sharpe +1.8 without frictions, −2.9 once costs and latency are charged | [Results §2](#results) |
 | **ML that does not win** | Walk-forward ML loses to a carry rule, and the README says so | [Results §4](#results) |
+| **Honest uncertainty** | Every portfolio Sharpe gets a paired block-bootstrap interval. On real data none is distinguishable from 0 or from BTC, and the README says so | [Noise](#how-much-of-this-is-noise) |
 | **Backtest ↔ live parity** | The paper loop recomputes decisions bar by bar and matches backtest equity to 1e-10 | `alphaforge paper ... --replay N`, `src/alphaforge/live/` |
 | **Configs** | One YAML file per experiment. Unknown keys are rejected and the error lists the allowed ones | `configs/`, `src/alphaforge/config/schema.py` |
 | **Design rationale** | The choices that matter, written down | [ARCHITECTURE](docs/ARCHITECTURE.md#design-choices-that-matter-to-a-hiring-manager) · [METHODOLOGY](docs/METHODOLOGY.md#design-choices-that-matter-to-a-hiring-manager) |
@@ -124,7 +125,7 @@ default frictions (4 bps fee, 1.5 bps half-spread, square-root impact, 1 bar of 
 
 | Net of all costs and funding | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/yr |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portfolio (risk parity, 20% vol target)** | **9.0%** | 20.4% | **0.53** | 0.78 | −32.8% | 141× |
+| **Portfolio (risk parity, 20% vol target)** | **9.0%** | 20.4% | **0.52** | 0.78 | −32.8% | 141× |
 | Time-series momentum | 5.5% | 15.5% | 0.43 | 0.61 | −22.9% | 38× |
 | Funding carry | 5.1% | 16.7% | 0.38 | 0.53 | −28.8% | 60× |
 | Cross-sectional momentum | 2.1% | 17.0% | 0.21 | 0.29 | −30.7% | 91× |
@@ -158,15 +159,15 @@ cleaner drops them as a dead feed, so FTM leaves the universe instead of becomin
 
 What this does and does not show:
 
-* **Selection hindsight was worth about 0.7 of Sharpe.** With the overlay off, the portfolio
-  goes from +0.53 on the hindsight universe to −0.15 point-in-time. Funding carry turns from
-  +0.38 to −0.32. Only time-series momentum survives (0.43 → 0.39). The headline number is
+* **Selection hindsight looks worth about 0.6–0.7 of Sharpe, but this is not established.**
+  With the overlay off, the portfolio goes from +0.53 on the hindsight universe to −0.15
+  point-in-time. The paired 95% interval of the gap is [−0.05, 1.30]. Funding carry turns from
+  +0.38 to −0.32, and only time-series momentum holds up (0.43 → 0.39). The headline number is
   the point-in-time one.
 * **Nothing here beats holding BTC in a way that can be trusted.** On the flattering universe,
-  the book's Sharpe (0.53) is a little above BTC's (0.44), with a −33% drawdown instead of
-  −78% and close to zero beta. On the point-in-time universe it is negative. No confidence
-  interval has been computed yet, and over five years of daily data a gap of 0.1 in Sharpe is
-  well inside the noise.
+  the book's Sharpe (0.52) is a little above BTC's (0.44), with a −33% drawdown instead of
+  −78% and close to zero beta. The paired interval of the gap is [−1.17, 1.31]. On the
+  point-in-time universe the Sharpe is negative. See [How much of this is noise?](#how-much-of-this-is-noise).
 * **Costs take about half of the gross price edge.** The framework charges them, which is the
   point.
 * On real data the alpha leaderboard keeps funding-based signals (`funding_reversal_90`
@@ -192,7 +193,7 @@ thresholds are unchanged (15% / 30% / 20 bars). v1 remains available as
 | Portfolio Sharpe (max DD) | v1 (realized) | **v2 (shadow, default)** | overlay off |
 |---|---:|---:|---:|
 | Synthetic multi-strategy | 1.37 (−18.1%) | **1.37 (−18.2%)** | 1.38 (−17.8%) |
-| Binance, fixed universe | 0.35 (−27.7%) | **0.53 (−32.8%)** | 0.53 (−31.2%) |
+| Binance, fixed universe | 0.35 (−27.7%) | **0.52 (−32.8%)** | 0.53 (−31.2%) |
 | Binance, point-in-time | −0.63 (−29.5%) | **−0.08 (−42.7%)** | −0.15 (−49.9%) |
 | Walk-forward ML book | −0.13 (−25.9%) | **−0.05 (−29.7%)** | 0.19 (−26.9%) |
 | Mean exposure multiplier (PIT) | 0.24 | **0.89** | 1.00 |
@@ -201,13 +202,49 @@ As reported, without further tuning:
 
 * **The trap is gone.** In the point-in-time run, mean exposure goes from 0.24 to 0.89 and
   the share of bars below half exposure from 85% to 11%.
-* **v2 shows no demonstrable value over having no overlay at all.** It is level on the fixed
-  universe, slightly better point-in-time and worse on the ML book. These gaps are within the
-  noise.
+* **v2 shows no demonstrable value over having no overlay at all.** The gaps are not
+  significant on Binance, and v2 is significantly *worse* on the ML book (−0.24 [−0.45,
+  −0.03]). v2 vs v1 is not significant either, even point-in-time (+0.54 [−0.17, 1.25]).
 * **v1's low drawdowns were an artefact.** It was out of the market. v2 does **not** cap the
   book's drawdown at the 30% hard limit, because that limit applies to the shadow book's
   drawdown: max DD reaches −33% on the fixed universe and −43% point-in-time.
 * Any further change to the overlay needs a new pre-registration.
+
+### How much of this is noise?
+
+Paired 95% block-bootstrap intervals, using a method fixed beforehand
+([METHODOLOGY §7](docs/METHODOLOGY.md#7-confidence-intervals-on-published-sharpe-ratios)).
+Reproduce with `python examples/05_sharpe_confidence.py`.
+
+| Portfolio Sharpe, 95% interval | v2 (default) | overlay off | BTC buy & hold |
+|---|---:|---:|---:|
+| Synthetic multi-strategy | **1.37 [0.60, 2.12]** | 1.38 [0.61, 2.13] | |
+| Walk-forward ML book | −0.05 [−1.04, 0.99] | 0.19 [−0.82, 1.24] | |
+| Binance, fixed universe | 0.52 [−0.28, 1.32] | 0.53 [−0.25, 1.34] | 0.44 [−0.39, 1.28] |
+| Binance, point-in-time | −0.08 [−0.89, 0.73] | −0.15 [−0.96, 0.65] | 0.44 [−0.39, 1.28] |
+
+| Paired difference in Sharpe | Estimate [95%] | Excludes 0? |
+|---|---:|:---:|
+| Binance fixed: v2 − BTC | +0.08 [−1.17, 1.31] | no |
+| Binance PIT: v2 − BTC | −0.53 [−1.72, 0.65] | no |
+| Binance v2: fixed − point-in-time universe | +0.61 [−0.05, 1.30] | no (borderline) |
+| Binance fixed: v2 − v1 | +0.17 [−0.09, 0.44] | no |
+| Binance PIT: v2 − v1 | +0.54 [−0.17, 1.25] | no |
+| Binance fixed: v2 − off | −0.01 [−0.13, 0.12] | no |
+| Binance PIT: v2 − off | +0.07 [−0.12, 0.27] | no |
+| Walk-forward ML: v2 − off | −0.24 [−0.45, −0.03] | **yes** |
+| Synthetic: v2 − off | −0.01 [−0.02, −0.00] | **yes** (tiny) |
+
+The verdict, stated plainly:
+
+* **On real data, no Sharpe in this repository is distinguishable from zero, or from BTC.**
+  Five years of daily returns give intervals about ±0.8 wide. The only significantly positive
+  Sharpe is on the synthetic market, where the edges were planted.
+* **The hindsight-universe effect is large but not established** (+0.61, interval just
+  touching zero).
+* **Overlay v2 is not shown to beat v1.** Where the overlay differs significantly from no
+  overlay at all, it is *worse* (ML book −0.24; synthetic −0.01). Its case rests on not
+  trapping the book, not on adding Sharpe.
 
 ## Quickstart
 
@@ -234,7 +271,7 @@ paper-trading replay. It prints the path of the HTML report (`runs/<timestamp>_m
 and exits non-zero on any failure. Use `--quick` to skip the tests. The individual commands:
 
 ```bash
-pytest                                                # 190 tests, ~2 min
+pytest                                                # 195 tests, ~2 min
 alphaforge list                                       # strategies, features, alphas
 alphaforge research configs/multi_strategy.yaml       # alpha leaderboard
 alphaforge run configs/multi_strategy.yaml            # backtest + HTML report in runs/
@@ -405,15 +442,15 @@ in a folder with another name; that has no effect.
 ```
 src/alphaforge/   data · features · alpha · strategies · portfolio · backtest · ml · analytics · research · live · config · utils
 configs/          multi_strategy · ml_walk_forward · binance_perps · cost_stress
-examples/         01_quickstart · 02_alpha_research · 03_ml_meta_labeling · 04_custom_strategy
+examples/         01_quickstart · 02_alpha_research · 03_ml_meta_labeling · 04_custom_strategy · 05_sharpe_confidence
 scripts/          smoke_test.py (one-command check)
-tests/            190 tests: causality properties, hand-computed accounting, CV leakage, paper/backtest parity, end-to-end runs
+tests/            195 tests: causality properties, hand-computed accounting, CV leakage, paper/backtest parity, end-to-end runs
 docs/             ARCHITECTURE.md · METHODOLOGY.md
 ```
 
 ## Roadmap
 
-- Bootstrap confidence intervals on every published Sharpe, so that gaps like v1 vs v2 vs off can be read
+- Longer or broader real-data samples (more venues, 4h bars): at ±0.8 of Sharpe, five years of daily data cannot separate the books tested here
 - Capacity analysis: Sharpe as a function of AUM under the impact model
 - Live venue adapter (CCXT orders, balance reconciliation, kill switch) behind the existing `Broker` interface
 - Persisted, versioned models so walk-forward ML strategies can be paper-traded

@@ -97,8 +97,9 @@ requires it to stay silent when the sample is too small. Edges are calibrated to
 
 `configs/binance_perps.yaml` was written before the real data was looked at and has not been
 tuned since. Running it on Binance USDT-M perps (Jul 2021 – Oct 2026) gives a net Sharpe of
-0.53 with overlay v2 (0.35 under v1), against 0.44 for BTC buy & hold. The drawdown is −33%
-instead of −78%, with near-zero beta. No confidence interval has been computed yet. Three
+0.52 with overlay v2 (0.35 under v1), against 0.44 for BTC buy & hold. The drawdown is −33%
+instead of −78%, with near-zero beta. None of these real-data Sharpes is distinguishable
+from zero or from BTC at 95% (§7). Three
 lessons generalise:
 
 * **Hindsight universes flatter results.** Picking the 12 coins that are large *today* is a
@@ -174,7 +175,7 @@ bar *t* uses data ≤ *t*.
 | Portfolio Sharpe (max DD) | v1 | v2 | overlay off |
 |---|---:|---:|---:|
 | Synthetic multi-strategy | 1.37 (−18.1%) | 1.37 (−18.2%) | 1.38 (−17.8%) |
-| Binance, fixed universe | 0.35 (−27.7%) | 0.53 (−32.8%) | 0.53 (−31.2%) |
+| Binance, fixed universe | 0.35 (−27.7%) | 0.52 (−32.8%) | 0.53 (−31.2%) |
 | Binance, point-in-time | −0.63 (−29.5%) | −0.08 (−42.7%) | −0.15 (−49.9%) |
 | Walk-forward ML book | −0.13 (−25.9%) | −0.05 (−29.7%) | 0.19 (−26.9%) |
 
@@ -184,6 +185,36 @@ bar *t* uses data ≤ *t*.
 * v1's lower drawdowns came from being out of the market. v2 does not cap the book's
   drawdown at 30%, because that limit applies to the shadow book.
 * `cost_stress` is unaffected, since it disables the overlay.
+
+## 7. Confidence intervals on published Sharpe ratios
+
+Method fixed before any interval was computed (`alphaforge.analytics.inference`):
+
+* **Circular block bootstrap** (Politis & Romano, 1992). Blocks keep autocorrelation and
+  volatility clustering. Block length is `ceil(n^(1/3))`, i.e. 13 bars for the ~1,930 daily
+  evaluation bars of the Binance runs; this is a standard rate, not a tuned value.
+* **5,000 resamples, 95% two-sided percentile intervals, seed 0.**
+* **Differences are paired.** Both books are resampled with the same blocks on their common
+  dates, so shared market moves cancel out.
+* **Reading rule:** a difference is called meaningful only if its 95% interval excludes zero.
+  No multiple-comparison correction is applied to the handful of pre-listed comparisons, so a
+  single borderline exclusion should be read with care.
+* **Calibration check** (`tests/test_inference.py`): on AR(1) returns with a known Sharpe,
+  the interval covers the true value in 88–99% of trials.
+
+Pre-listed comparisons: every portfolio Sharpe in the README; overlay v2 vs v1 and vs no
+overlay (all four books); the fixed-universe and point-in-time Binance books vs BTC buy &
+hold; fixed vs point-in-time universe.
+
+**Outcome.** Tables are in the README ("How much of this is noise?").
+
+* The only Sharpe whose interval excludes zero is the synthetic book (1.37 [0.60, 2.12]).
+  No real-data book is distinguishable from zero or from BTC. Intervals are about ±0.8 wide,
+  so five years of daily data cannot separate books whose Sharpe differs by less than ~1.
+* Fixed vs point-in-time universe: +0.61 [−0.05, 1.30], large but not established.
+* Overlay v2 vs v1 is not significant on any book. v2 vs no overlay is significantly negative
+  on the ML book (−0.24) and on the synthetic book (−0.01); everywhere else it is not
+  significant.
 
 ## References
 

@@ -9,7 +9,7 @@ commit, à la seed et au hash des données près.
 
 🇬🇧 [English version](README.md) · 📐 [Architecture](docs/ARCHITECTURE.md) · 🔬 [Méthodologie](docs/METHODOLOGY.md) · 🤝 [Contribuer](CONTRIBUTING.md)
 
-[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-190%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
+[![CI](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml/badge.svg)](https://github.com/theojoyerclement-crypto/alphaforge/actions/workflows/ci.yml) ![python](https://img.shields.io/badge/python-3.11%2B-1f4e79) ![tests](https://img.shields.io/badge/tests-195%20passing-4f8a3c) ![license](https://img.shields.io/badge/license-MIT-555555) ![status](https://img.shields.io/badge/status-research-8064a2)
 
 ---
 
@@ -23,6 +23,7 @@ commit, à la seed et au hash des données près.
 | **Résultats sur données réelles, y compris les mauvais** | Perpétuels Binance, nets de frais, spread, impact et funding, comparés au buy & hold | [Données réelles](#5-marché-réel--perpétuels-binance-usdt-m) |
 | **Un alpha significatif qui perd de l'argent** | t = 5,5, Sharpe +1,8 sans friction, −2,9 avec coûts et latence | [Résultats §2](#résultats) |
 | **Un ML qui ne gagne pas** | Le ML en walk-forward perd face à une règle de carry, et le README le dit | [Résultats §4](#résultats) |
+| **Incertitude assumée** | Chaque Sharpe de portefeuille a un intervalle par bootstrap par blocs apparié. Sur données réelles, aucun ne se distingue de 0 ni de BTC, et le README le dit | [Bruit](#quelle-part-de-bruit-) |
 | **Parité backtest ↔ live** | La boucle paper recalcule les décisions barre par barre et retrouve l'equity du backtest à 1e-10 | `alphaforge paper ... --replay N`, `src/alphaforge/live/` |
 | **Configs** | Un fichier YAML par expérience. Une clé inconnue est rejetée et l'erreur liste les clés valides | `configs/`, `src/alphaforge/config/schema.py` |
 | **Choix de conception** | Les décisions qui comptent, documentées | [ARCHITECTURE](docs/ARCHITECTURE.md#design-choices-that-matter-to-a-hiring-manager) · [METHODOLOGY](docs/METHODOLOGY.md#design-choices-that-matter-to-a-hiring-manager) |
@@ -127,7 +128,7 @@ LINK, DOT, LTC, ATOM), barres journalières, funding réel toutes les 8 h, éval
 
 | Net de tous coûts et du funding | CAGR | Vol | Sharpe | Sortino | Max DD | Turnover/an |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portefeuille (risk parity, cible 20 % de vol)** | **9,0 %** | 20,4 % | **0,53** | 0,78 | −32,8 % | 141× |
+| **Portefeuille (risk parity, cible 20 % de vol)** | **9,0 %** | 20,4 % | **0,52** | 0,78 | −32,8 % | 141× |
 | Momentum time-series | 5,5 % | 15,5 % | 0,43 | 0,61 | −22,9 % | 38× |
 | Carry de funding | 5,1 % | 16,7 % | 0,38 | 0,53 | −28,8 % | 60× |
 | Momentum cross-sectionnel | 2,1 % | 17,0 % | 0,21 | 0,29 | −30,7 % | 91× |
@@ -162,15 +163,16 @@ volatilité nulle.
 
 Ce que ces chiffres montrent, et ce qu'ils ne montrent pas :
 
-* **Le choix a posteriori de l'univers valait environ 0,7 de Sharpe.** Overlay désactivé, le
-  portefeuille passe de +0,53 sur l'univers a posteriori à −0,15 en point-in-time. Le carry de
-  funding passe de +0,38 à −0,32. Seul le momentum time-series résiste (0,43 → 0,39). Le
-  chiffre de référence est le chiffre point-in-time.
+* **Le choix a posteriori de l'univers semble valoir environ 0,6–0,7 de Sharpe, mais ce
+  n'est pas établi.** Overlay désactivé, le portefeuille passe de +0,53 sur l'univers a
+  posteriori à −0,15 en point-in-time. L'intervalle apparié à 95 % de l'écart est
+  [−0,05 ; 1,30]. Le carry de funding passe de +0,38 à −0,32, et seul le momentum time-series
+  résiste (0,43 → 0,39). Le chiffre de référence est le chiffre point-in-time.
 * **Rien ici ne bat la détention de BTC de façon fiable.** Sur l'univers flatteur, le Sharpe du
-  portefeuille (0,53) est un peu au-dessus de celui de BTC (0,44), avec un drawdown de −33 % au
-  lieu de −78 % et un bêta proche de zéro. Sur l'univers point-in-time, il est négatif. Aucun
-  intervalle de confiance n'a encore été calculé, et sur cinq ans de données journalières un
-  écart de 0,1 de Sharpe est largement dans le bruit.
+  portefeuille (0,52) est un peu au-dessus de celui de BTC (0,44), avec un drawdown de −33 % au
+  lieu de −78 % et un bêta proche de zéro. L'intervalle apparié de l'écart est
+  [−1,17 ; 1,31]. Sur l'univers point-in-time, le Sharpe est négatif. Voir
+  [Quelle part de bruit ?](#quelle-part-de-bruit-).
 * **Les coûts prennent environ la moitié de l'edge brut en prix.** Le framework les fait payer,
   c'est le but.
 * Sur données réelles, le classement des alphas retient les signaux de funding
@@ -198,7 +200,7 @@ via `risk.drawdown_basis: realized` et reproduit exactement les anciens tableaux
 | Sharpe du portefeuille (max DD) | v1 (realized) | **v2 (fantôme, défaut)** | sans overlay |
 |---|---:|---:|---:|
 | Synthétique multi-stratégies | 1,37 (−18,1 %) | **1,37 (−18,2 %)** | 1,38 (−17,8 %) |
-| Binance, univers fixe | 0,35 (−27,7 %) | **0,53 (−32,8 %)** | 0,53 (−31,2 %) |
+| Binance, univers fixe | 0,35 (−27,7 %) | **0,52 (−32,8 %)** | 0,53 (−31,2 %) |
 | Binance, point-in-time | −0,63 (−29,5 %) | **−0,08 (−42,7 %)** | −0,15 (−49,9 %) |
 | Portefeuille ML walk-forward | −0,13 (−25,9 %) | **−0,05 (−29,7 %)** | 0,19 (−26,9 %) |
 | Multiplicateur d'exposition moyen (PIT) | 0,24 | **0,89** | 1,00 |
@@ -207,14 +209,51 @@ Publié tel quel, sans réglage supplémentaire :
 
 * **Le piège a disparu.** Dans le run point-in-time, l'exposition moyenne passe de 0,24 à 0,89,
   et la part des barres sous la moitié de l'exposition de 85 % à 11 %.
-* **La v2 n'apporte pas de valeur démontrable par rapport à l'absence d'overlay.** Elle est à
-  égalité sur l'univers fixe, un peu meilleure en point-in-time et moins bonne sur le
-  portefeuille ML. Ces écarts sont dans le bruit.
+* **La v2 n'apporte pas de valeur démontrable par rapport à l'absence d'overlay.** Les écarts
+  ne sont pas significatifs sur Binance, et la v2 fait significativement *moins bien* sur le
+  portefeuille ML (−0,24 [−0,45 ; −0,03]). L'écart v2 − v1 n'est pas significatif non plus,
+  même en point-in-time (+0,54 [−0,17 ; 1,25]).
 * **Les faibles drawdowns de la v1 étaient un artefact.** Elle était hors du marché. La v2 ne
   plafonne **pas** le drawdown du portefeuille à la limite dure de 30 %, car cette limite
   s'applique au drawdown du book fantôme : le max DD atteint −33 % sur l'univers fixe et −43 %
   en point-in-time.
 * Toute nouvelle modification de l'overlay nécessitera une nouvelle pré-registration.
+
+### Quelle part de bruit ?
+
+Intervalles à 95 % par bootstrap par blocs apparié, avec une méthode fixée à l'avance
+([METHODOLOGY §7](docs/METHODOLOGY.md#7-confidence-intervals-on-published-sharpe-ratios)).
+Pour reproduire : `python examples/05_sharpe_confidence.py`.
+
+| Sharpe du portefeuille, intervalle à 95 % | v2 (défaut) | sans overlay | BTC buy & hold |
+|---|---:|---:|---:|
+| Synthétique multi-stratégies | **1,37 [0,60 ; 2,12]** | 1,38 [0,61 ; 2,13] | |
+| Portefeuille ML walk-forward | −0,05 [−1,04 ; 0,99] | 0,19 [−0,82 ; 1,24] | |
+| Binance, univers fixe | 0,52 [−0,28 ; 1,32] | 0,53 [−0,25 ; 1,34] | 0,44 [−0,39 ; 1,28] |
+| Binance, point-in-time | −0,08 [−0,89 ; 0,73] | −0,15 [−0,96 ; 0,65] | 0,44 [−0,39 ; 1,28] |
+
+| Écart de Sharpe apparié | Estimation [95 %] | Exclut 0 ? |
+|---|---:|:---:|
+| Binance fixe : v2 − BTC | +0,08 [−1,17 ; 1,31] | non |
+| Binance PIT : v2 − BTC | −0,53 [−1,72 ; 0,65] | non |
+| Binance v2 : univers fixe − point-in-time | +0,61 [−0,05 ; 1,30] | non (limite) |
+| Binance fixe : v2 − v1 | +0,17 [−0,09 ; 0,44] | non |
+| Binance PIT : v2 − v1 | +0,54 [−0,17 ; 1,25] | non |
+| Binance fixe : v2 − sans overlay | −0,01 [−0,13 ; 0,12] | non |
+| Binance PIT : v2 − sans overlay | +0,07 [−0,12 ; 0,27] | non |
+| ML walk-forward : v2 − sans overlay | −0,24 [−0,45 ; −0,03] | **oui** |
+| Synthétique : v2 − sans overlay | −0,01 [−0,02 ; −0,00] | **oui** (minime) |
+
+Le verdict, sans détour :
+
+* **Sur données réelles, aucun Sharpe de ce dépôt ne se distingue de zéro, ni de BTC.** Cinq ans
+  de rendements journaliers donnent des intervalles d'environ ±0,8. Le seul Sharpe
+  significativement positif est celui du marché synthétique, où les edges ont été implantés.
+* **L'effet de l'univers choisi a posteriori est important mais non établi** (+0,61, un
+  intervalle qui touche tout juste zéro).
+* **Il n'est pas démontré que l'overlay v2 bat la v1.** Là où l'overlay diffère
+  significativement de l'absence d'overlay, il fait *moins bien* (ML −0,24 ; synthétique
+  −0,01). Son intérêt tient au fait qu'il ne piège plus le book, pas à un gain de Sharpe.
 
 ## Démarrage rapide
 
@@ -243,7 +282,7 @@ replay paper-trading de 10 barres. Il affiche le chemin du rapport HTML
 `--quick` saute les tests. Les commandes individuelles :
 
 ```bash
-pytest                                                # 190 tests, ~2 min
+pytest                                                # 195 tests, ~2 min
 alphaforge list                                       # stratégies, features, alphas
 alphaforge research configs/multi_strategy.yaml       # classement des alphas
 alphaforge run configs/multi_strategy.yaml            # backtest + rapport HTML dans runs/
